@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check repository scaffold
+        run: |
+          test -d contracts/src
+          test -d contracts/test
+          test -d frontend/src
+          test -d docs
+
