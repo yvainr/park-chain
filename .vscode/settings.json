@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^forge test --match-contract OperatorTreasuryTest$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
