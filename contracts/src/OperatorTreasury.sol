@@ -6,6 +6,16 @@ interface IOperatorRegistry {
 }
 
 contract OperatorTreasury {
+    IOperatorRegistry public immutable operatorRegistry;
+
+    address public owner;
+    address public allocator;
+    uint256 public creditToEthRate;
+
+    mapping(uint256 => uint256) private accumulatedEarnings;
+
+    bool private locked;
+
     event EarningsAllocated(uint256 indexed operatorId, uint256 amountCredits);
     event EarningsWithdrawn(
         uint256 indexed operatorId,
@@ -14,108 +24,79 @@ contract OperatorTreasury {
         uint256 amountWei
     );
     event CreditToEthRateUpdated(uint256 weiPerCredit);
-    event ParkingLedgerUpdated(address indexed parkingLedger);
-    event OperatorRegistryUpdated(address indexed operatorRegistry);
-
-    error OwnableUnauthorizedAccount(address account);
-    error ZeroAddressNotAllowed();
-    error InvalidExchangeRate();
-    error NotParkingLedger(address caller);
-    error OperatorRegistryNotSet();
-    error NoEarnings(uint256 operatorId);
-    error NotOperatorWallet(uint256 operatorId, address caller);
-    error InsufficientLiquidity(uint256 requiredWei, uint256 availableWei);
-    error WithdrawalTransferFailed(address operatorWallet);
-
-    address public owner;
-    address public parkingLedger;
-    address public operatorRegistry;
-
-    uint256 private creditToEthRate;
-
-    mapping(uint256 => uint256) private accumulatedEarnings;
+    event AllocatorUpdated(address indexed allocator);
 
     modifier onlyOwner() {
-        if (msg.sender != owner) {
-            revert OwnableUnauthorizedAccount(msg.sender);
-        }
+        require(msg.sender == owner, "OperatorTreasury: not owner");
         _;
     }
 
-    modifier onlyParkingLedger() {
-        if (msg.sender != parkingLedger) {
-            revert NotParkingLedger(msg.sender);
-        }
+    modifier onlyAllocator() {
+        require(msg.sender == allocator, "OperatorTreasury: not allocator");
         _;
     }
 
-    constructor(address initialOwner) {
-        if (initialOwner == address(0)) {
-            revert ZeroAddressNotAllowed();
-        }
-        owner = initialOwner;
+    modifier nonReentrant() {
+        require(!locked, "OperatorTreasury: reentrant call");
+        locked = true;
+        _;
+        locked = false;
+    }
+
+    constructor(IOperatorRegistry registry, uint256 initialCreditToEthRate) {
+        require(address(registry) != address(0), "OperatorTreasury: zero registry");
+
+        owner = msg.sender;
+        allocator = msg.sender;
+        operatorRegistry = registry;
+        creditToEthRate = initialCreditToEthRate;
+
+        emit CreditToEthRateUpdated(initialCreditToEthRate);
+        emit AllocatorUpdated(msg.sender);
     }
 
     receive() external payable {}
 
-    function setParkingLedger(address parkingLedger_) external onlyOwner {
-        if (parkingLedger_ == address(0)) {
-            revert ZeroAddressNotAllowed();
-        }
-        parkingLedger = parkingLedger_;
-        emit ParkingLedgerUpdated(parkingLedger_);
+    function setAllocator(address newAllocator) external onlyOwner {
+        require(newAllocator != address(0), "OperatorTreasury: zero allocator");
+        allocator = newAllocator;
+
+        emit AllocatorUpdated(newAllocator);
     }
 
-    function setOperatorRegistry(address operatorRegistry_) external onlyOwner {
-        if (operatorRegistry_ == address(0)) {
-            revert ZeroAddressNotAllowed();
-        }
-        operatorRegistry = operatorRegistry_;
-        emit OperatorRegistryUpdated(operatorRegistry_);
-    }
+    function allocateEarnings(uint256 operatorId, uint256 amountCredits) external onlyAllocator {
+        require(amountCredits > 0, "OperatorTreasury: zero amount");
+        require(operatorRegistry.getOperatorWallet(operatorId) != address(0), "OperatorTreasury: unknown operator");
 
-    function setCreditToEthRate(uint256 weiPerCredit) external onlyOwner {
-        if (weiPerCredit == 0) {
-            revert InvalidExchangeRate();
-        }
-        creditToEthRate = weiPerCredit;
-        emit CreditToEthRateUpdated(weiPerCredit);
-    }
-
-    function allocateEarnings(uint256 operatorId, uint256 amountCredits) external onlyParkingLedger {
         accumulatedEarnings[operatorId] += amountCredits;
+
         emit EarningsAllocated(operatorId, amountCredits);
     }
 
-    function withdraw(uint256 operatorId) external {
-        if (operatorRegistry == address(0)) {
-            revert OperatorRegistryNotSet();
-        }
-
-        address operatorWallet = IOperatorRegistry(operatorRegistry).getOperatorWallet(operatorId);
-        if (msg.sender != operatorWallet) {
-            revert NotOperatorWallet(operatorId, msg.sender);
-        }
+    function withdraw(uint256 operatorId) external nonReentrant {
+        address operatorWallet = operatorRegistry.getOperatorWallet(operatorId);
+        require(operatorWallet != address(0), "OperatorTreasury: unknown operator");
+        require(msg.sender == operatorWallet, "OperatorTreasury: not operator wallet");
+        require(creditToEthRate > 0, "OperatorTreasury: zero exchange rate");
 
         uint256 amountCredits = accumulatedEarnings[operatorId];
-        if (amountCredits == 0) {
-            revert NoEarnings(operatorId);
-        }
+        require(amountCredits > 0, "OperatorTreasury: no earnings");
 
         uint256 amountWei = amountCredits * creditToEthRate;
-        if (address(this).balance < amountWei) {
-            revert InsufficientLiquidity(amountWei, address(this).balance);
-        }
+        require(address(this).balance >= amountWei, "OperatorTreasury: insufficient liquidity");
 
         accumulatedEarnings[operatorId] = 0;
 
-        (bool success, ) = payable(operatorWallet).call{value: amountWei}("");
-        if (!success) {
-            accumulatedEarnings[operatorId] = amountCredits;
-            revert WithdrawalTransferFailed(operatorWallet);
-        }
+        (bool sent, ) = operatorWallet.call{value: amountWei}("");
+        require(sent, "OperatorTreasury: withdraw failed");
 
         emit EarningsWithdrawn(operatorId, operatorWallet, amountCredits, amountWei);
+    }
+
+    function setCreditToEthRate(uint256 weiPerCredit) external onlyOwner {
+        creditToEthRate = weiPerCredit;
+
+        emit CreditToEthRateUpdated(weiPerCredit);
     }
 
     function getAccumulatedEarnings(uint256 operatorId) external view returns (uint256) {
@@ -126,4 +107,3 @@ contract OperatorTreasury {
         return creditToEthRate;
     }
 }
-

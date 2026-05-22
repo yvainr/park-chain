@@ -1,119 +1,107 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {OperatorTreasury} from "../src/OperatorTreasury.sol";
+import {OperatorRegistry} from "../src/OperatorRegistry.sol";
+import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 
-interface Vm {
-    function prank(address msgSender) external;
-
+interface TreasuryVm {
     function deal(address account, uint256 newBalance) external;
-
-    function expectRevert(bytes4 revertData) external;
-}
-
-contract MockOperatorRegistry {
-    mapping(uint256 => address) private operatorWallets;
-
-    function setOperatorWallet(uint256 operatorId, address wallet) external {
-        operatorWallets[operatorId] = wallet;
-    }
-
-    function getOperatorWallet(uint256 operatorId) external view returns (address) {
-        return operatorWallets[operatorId];
-    }
+    function prank(address msgSender) external;
 }
 
 contract OperatorTreasuryTest {
-    address private constant HEVM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
-    Vm private constant vm = Vm(HEVM_ADDRESS);
+    TreasuryVm private constant vm = TreasuryVm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    function testOwnerCanConfigureTreasury() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
-        MockOperatorRegistry registry = new MockOperatorRegistry();
+    OperatorRegistry private registry;
+    OperatorTreasury private treasury;
 
-        treasury.setParkingLedger(address(0xBEEF));
-        treasury.setOperatorRegistry(address(registry));
-        treasury.setCreditToEthRate(2 ether);
+    address private operatorWallet = address(0x1001);
+    address private allocator = address(0x2002);
+    address private stranger = address(0x3003);
+    bytes32 private constant STANDARD = keccak256("standard");
 
-        require(treasury.parkingLedger() == address(0xBEEF), "parking ledger not set");
-        require(treasury.operatorRegistry() == address(registry), "registry not set");
-        require(treasury.getCreditToEthRate() == 2 ether, "rate not set");
+    receive() external payable {}
+
+    function setUp() public {
+        registry = new OperatorRegistry();
+        treasury = new OperatorTreasury(IOperatorRegistry(address(registry)), 0.01 ether);
+
+        bytes32[] memory categories = new bytes32[](1);
+        categories[0] = STANDARD;
+        registry.registerOperator(1, operatorWallet, "Central Garage", categories);
     }
 
-    function testNonOwnerCannotConfigureTreasury() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
+    function testOwnerUpdatesRateAndAllocator() public {
+        treasury.setCreditToEthRate(0.02 ether);
+        treasury.setAllocator(allocator);
 
-        vm.expectRevert(OperatorTreasury.OwnableUnauthorizedAccount.selector);
-        vm.prank(address(0xCAFE));
-        treasury.setCreditToEthRate(1 ether);
+        require(treasury.getCreditToEthRate() == 0.02 ether, "rate mismatch");
+        require(treasury.allocator() == allocator, "allocator mismatch");
     }
 
-    function testOnlyParkingLedgerCanAllocateEarnings() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
+    function testNonOwnerCannotUpdateAdminSettings() public {
+        vm.prank(stranger);
+        try treasury.setCreditToEthRate(0.02 ether) {
+            revert("non-owner rate update should revert");
+        } catch {}
 
-        treasury.setParkingLedger(address(0xBEEF));
-
-        vm.expectRevert(OperatorTreasury.NotParkingLedger.selector);
-        treasury.allocateEarnings(1, 10);
-
-        vm.prank(address(0xBEEF));
-        treasury.allocateEarnings(1, 10);
-
-        require(treasury.getAccumulatedEarnings(1) == 10, "earnings not allocated");
+        vm.prank(stranger);
+        try treasury.setAllocator(allocator) {
+            revert("non-owner allocator update should revert");
+        } catch {}
     }
 
-    function testOperatorCanWithdrawAccumulatedEarnings() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
-        MockOperatorRegistry registry = new MockOperatorRegistry();
-        address operatorWallet = address(0xB0B);
+    function testAllocatorCanAllocateEarnings() public {
+        treasury.setAllocator(allocator);
 
-        treasury.setParkingLedger(address(0xBEEF));
-        treasury.setOperatorRegistry(address(registry));
-        treasury.setCreditToEthRate(2 ether);
-        registry.setOperatorWallet(1, operatorWallet);
+        vm.prank(allocator);
+        treasury.allocateEarnings(1, 42);
 
-        vm.prank(address(0xBEEF));
-        treasury.allocateEarnings(1, 3);
+        require(treasury.getAccumulatedEarnings(1) == 42, "earnings mismatch");
+    }
 
-        vm.deal(address(treasury), 6 ether);
+    function testNonAllocatorCannotAllocateEarnings() public {
+        treasury.setAllocator(allocator);
 
+        vm.prank(stranger);
+        try treasury.allocateEarnings(1, 42) {
+            revert("non-allocator allocation should revert");
+        } catch {}
+    }
+
+    function testOperatorCanWithdrawAndExchangeRateIsApplied() public {
+        treasury.setAllocator(allocator);
+        vm.prank(allocator);
+        treasury.allocateEarnings(1, 50);
+
+        vm.deal(address(treasury), 1 ether);
         uint256 balanceBefore = operatorWallet.balance;
+
         vm.prank(operatorWallet);
         treasury.withdraw(1);
 
-        require(operatorWallet.balance == balanceBefore + 6 ether, "withdrawal amount mismatch");
-        require(treasury.getAccumulatedEarnings(1) == 0, "earnings not cleared");
+        require(operatorWallet.balance == balanceBefore + 0.5 ether, "withdraw amount mismatch");
+        require(treasury.getAccumulatedEarnings(1) == 0, "earnings should clear");
     }
 
-    function testNonOperatorCannotWithdraw() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
-        MockOperatorRegistry registry = new MockOperatorRegistry();
+    function testNonOperatorCannotWithdrawOperatorEarnings() public {
+        treasury.allocateEarnings(1, 50);
+        vm.deal(address(treasury), 1 ether);
 
-        treasury.setOperatorRegistry(address(registry));
-        treasury.setCreditToEthRate(1 ether);
-        registry.setOperatorWallet(1, address(0xB0B));
-
-        vm.expectRevert(OperatorTreasury.NotOperatorWallet.selector);
-        vm.prank(address(0xCAFE));
-        treasury.withdraw(1);
+        vm.prank(stranger);
+        try treasury.withdraw(1) {
+            revert("non-operator withdraw should revert");
+        } catch {}
     }
 
-    function testWithdrawalFailsWhenTreasuryIsIlliquid() public {
-        OperatorTreasury treasury = new OperatorTreasury(address(this));
-        MockOperatorRegistry registry = new MockOperatorRegistry();
-        address operatorWallet = address(0xB0B);
+    function testWithdrawRevertsWhenLiquidityIsInsufficient() public {
+        treasury.allocateEarnings(1, 50);
 
-        treasury.setOperatorRegistry(address(registry));
-        treasury.setParkingLedger(address(0xBEEF));
-        treasury.setCreditToEthRate(1 ether);
-        registry.setOperatorWallet(1, operatorWallet);
-
-        vm.prank(address(0xBEEF));
-        treasury.allocateEarnings(1, 2);
-
-        vm.expectRevert(OperatorTreasury.InsufficientLiquidity.selector);
         vm.prank(operatorWallet);
-        treasury.withdraw(1);
+        try treasury.withdraw(1) {
+            revert("illiquid withdraw should revert");
+        } catch {}
+
+        require(treasury.getAccumulatedEarnings(1) == 50, "earnings should remain");
     }
 }
-
