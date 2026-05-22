@@ -1,6 +1,9 @@
 node_modules/
 frontend/dist/
+out/
+cache/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
-out/
+contracts/hardhat-artifacts/
+contracts/hardhat-cache/

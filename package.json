@@ -1,0 +1,23 @@
+{
+  "name": "park-chain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:contracts": "hardhat build",
+    "test:contracts": "hardhat test",
+    "node:contracts": "hardhat node",
+    "deploy:contracts:local": "hardhat run scripts/deploy-hardhat.ts --network localhost",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-network-helpers": "^3.0.0",
+    "@nomicfoundation/hardhat-node-test-runner": "^3.0.0",
+    "@nomicfoundation/hardhat-viem": "^3.0.0",
+    "@nomicfoundation/hardhat-viem-assertions": "^3.0.0",
+    "hardhat": "^3.0.0",
+    "typescript": "^5.8.0",
+    "viem": "^2.30.0"
+  }
+}
