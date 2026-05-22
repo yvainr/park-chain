@@ -7,3 +7,4 @@ contracts/cache/
 contracts/broadcast/
 contracts/hardhat-artifacts/
 contracts/hardhat-cache/
+package-lock.json
