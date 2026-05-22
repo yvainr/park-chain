@@ -20,7 +20,7 @@ contract ParkCreditTest is Test {
         parkCredit = new ParkCredit();
     }
 
-    // SUCCESS CASES
+    // SUCCESS CASES (Erfolgsfälle)
 
     function testShouldSetOwnerCorrectly() external view {
         assertEq(parkCredit.owner(), owner);
@@ -39,7 +39,7 @@ contract ParkCreditTest is Test {
     }
 
 
-    // ERROR CASES
+    // ERROR CASES (Fehlerschlag-Tests)
 
     function testShouldRevertIfNonOwnerSetsMinter() external {
         vm.prank(attacker);
