@@ -2,15 +2,14 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
   pull_request:
 
 jobs:
-  scaffold:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Check repository scaffold
         run: |
           test -d contracts/src
@@ -18,3 +17,11 @@ jobs:
           test -d frontend/src
           test -d docs
 
+      - name: Install Node dependencies
+        run: npm install
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run contract tests
+        run: forge test --root contracts

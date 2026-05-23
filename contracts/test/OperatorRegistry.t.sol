@@ -5,6 +5,7 @@ import {OperatorRegistry} from "../src/OperatorRegistry.sol";
 
 interface RegistryVm {
     function prank(address msgSender) external;
+    function expectRevert(bytes calldata revertData) external;
 }
 
 contract OperatorRegistryTest {
@@ -43,16 +44,33 @@ contract OperatorRegistryTest {
         categories[0] = STANDARD;
 
         vm.prank(stranger);
-        try registry.registerOperator(1, operatorWallet, "Central Garage", categories) {
-            revert("non-admin register should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorRegistry: not owner"));
+        registry.registerOperator(1, operatorWallet, "Central Garage", categories);
 
         registry.registerOperator(1, operatorWallet, "Central Garage", categories);
 
         vm.prank(stranger);
-        try registry.removeOperator(1) {
-            revert("non-admin remove should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorRegistry: not owner"));
+        registry.removeOperator(1);
+    }
+
+    function testRegisterRejectsZeroWalletAndEmptyName() public {
+        bytes32[] memory categories = new bytes32[](1);
+        categories[0] = STANDARD;
+
+        vm.expectRevert(bytes("OperatorRegistry: zero wallet"));
+        registry.registerOperator(1, address(0), "Central Garage", categories);
+
+        vm.expectRevert(bytes("OperatorRegistry: empty name"));
+        registry.registerOperator(1, operatorWallet, "", categories);
+    }
+
+    function testRemoveAndCategoryUpdateRejectUnknownOperator() public {
+        vm.expectRevert(bytes("OperatorRegistry: unknown operator"));
+        registry.removeOperator(404);
+
+        vm.expectRevert(bytes("OperatorRegistry: unknown operator"));
+        registry.setSupportedCategory(404, STANDARD, true);
     }
 
     function testOnlyOperatorWalletCanSetPriceAndNoShowFee() public {
@@ -61,14 +79,12 @@ contract OperatorRegistryTest {
         registry.registerOperator(1, operatorWallet, "Central Garage", categories);
 
         vm.prank(stranger);
-        try registry.setPricePerHour(1, STANDARD, 10) {
-            revert("stranger price update should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorRegistry: not operator wallet"));
+        registry.setPricePerHour(1, STANDARD, 10);
 
         vm.prank(stranger);
-        try registry.setNoShowFee(1, 3) {
-            revert("stranger no-show update should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorRegistry: not operator wallet"));
+        registry.setNoShowFee(1, 3);
 
         vm.prank(operatorWallet);
         registry.setPricePerHour(1, STANDARD, 10);
@@ -78,6 +94,31 @@ contract OperatorRegistryTest {
 
         require(registry.getPricePerHour(1, STANDARD) == 10, "price mismatch");
         require(registry.getNoShowFee(1) == 3, "no-show fee mismatch");
+    }
+
+    function testOperatorCannotSetPriceForUnsupportedCategory() public {
+        bytes32[] memory categories = new bytes32[](1);
+        categories[0] = STANDARD;
+        registry.registerOperator(1, operatorWallet, "Central Garage", categories);
+
+        vm.prank(operatorWallet);
+        vm.expectRevert(bytes("OperatorRegistry: unsupported category"));
+        registry.setPricePerHour(1, EV_CHARGING, 10);
+    }
+
+    function testRemovedOperatorCannotSetPriceOrNoShowFee() public {
+        bytes32[] memory categories = new bytes32[](1);
+        categories[0] = STANDARD;
+        registry.registerOperator(1, operatorWallet, "Central Garage", categories);
+        registry.removeOperator(1);
+
+        vm.prank(operatorWallet);
+        vm.expectRevert(bytes("OperatorRegistry: not whitelisted"));
+        registry.setPricePerHour(1, STANDARD, 10);
+
+        vm.prank(operatorWallet);
+        vm.expectRevert(bytes("OperatorRegistry: not whitelisted"));
+        registry.setNoShowFee(1, 3);
     }
 
     function testAdminCanUpdateSupportedCategory() public {

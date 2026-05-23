@@ -7,6 +7,7 @@ import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 interface TreasuryVm {
     function deal(address account, uint256 newBalance) external;
     function prank(address msgSender) external;
+    function expectRevert(bytes calldata revertData) external;
 }
 
 contract OperatorTreasuryTest {
@@ -41,14 +42,20 @@ contract OperatorTreasuryTest {
 
     function testNonOwnerCannotUpdateAdminSettings() public {
         vm.prank(stranger);
-        try treasury.setCreditToEthRate(0.02 ether) {
-            revert("non-owner rate update should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorTreasury: not owner"));
+        treasury.setCreditToEthRate(0.02 ether);
 
         vm.prank(stranger);
-        try treasury.setAllocator(allocator) {
-            revert("non-owner allocator update should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorTreasury: not owner"));
+        treasury.setAllocator(allocator);
+    }
+
+    function testConstructorAndAllocatorRejectZeroAddresses() public {
+        vm.expectRevert(bytes("OperatorTreasury: zero registry"));
+        new OperatorTreasury(IOperatorRegistry(address(0)), 0.01 ether);
+
+        vm.expectRevert(bytes("OperatorTreasury: zero allocator"));
+        treasury.setAllocator(address(0));
     }
 
     function testAllocatorCanAllocateEarnings() public {
@@ -64,9 +71,16 @@ contract OperatorTreasuryTest {
         treasury.setAllocator(allocator);
 
         vm.prank(stranger);
-        try treasury.allocateEarnings(1, 42) {
-            revert("non-allocator allocation should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorTreasury: not allocator"));
+        treasury.allocateEarnings(1, 42);
+    }
+
+    function testAllocateRejectsZeroAmountAndUnknownOperator() public {
+        vm.expectRevert(bytes("OperatorTreasury: zero amount"));
+        treasury.allocateEarnings(1, 0);
+
+        vm.expectRevert(bytes("OperatorTreasury: unknown operator"));
+        treasury.allocateEarnings(404, 42);
     }
 
     function testOperatorCanWithdrawAndExchangeRateIsApplied() public {
@@ -89,19 +103,44 @@ contract OperatorTreasuryTest {
         vm.deal(address(treasury), 1 ether);
 
         vm.prank(stranger);
-        try treasury.withdraw(1) {
-            revert("non-operator withdraw should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorTreasury: not operator wallet"));
+        treasury.withdraw(1);
+    }
+
+    function testWithdrawRevertsWhenOperatorUnknownOrNoEarningsOrRateZero() public {
+        vm.prank(stranger);
+        vm.expectRevert(bytes("OperatorTreasury: unknown operator"));
+        treasury.withdraw(404);
+
+        vm.prank(operatorWallet);
+        vm.expectRevert(bytes("OperatorTreasury: no earnings"));
+        treasury.withdraw(1);
+
+        treasury.allocateEarnings(1, 50);
+        treasury.setCreditToEthRate(0);
+
+        vm.prank(operatorWallet);
+        vm.expectRevert(bytes("OperatorTreasury: zero exchange rate"));
+        treasury.withdraw(1);
     }
 
     function testWithdrawRevertsWhenLiquidityIsInsufficient() public {
         treasury.allocateEarnings(1, 50);
 
         vm.prank(operatorWallet);
-        try treasury.withdraw(1) {
-            revert("illiquid withdraw should revert");
-        } catch {}
+        vm.expectRevert(bytes("OperatorTreasury: insufficient liquidity"));
+        treasury.withdraw(1);
 
         require(treasury.getAccumulatedEarnings(1) == 50, "earnings should remain");
+    }
+
+    function testTreasuryCanReceiveEth() public {
+        uint256 balanceBefore = address(treasury).balance;
+        vm.deal(address(this), 1 ether);
+
+        (bool sent, ) = address(treasury).call{value: 0.25 ether}("");
+
+        require(sent, "funding should succeed");
+        require(address(treasury).balance == balanceBefore + 0.25 ether, "treasury balance mismatch");
     }
 }

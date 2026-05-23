@@ -3,4 +3,5 @@ src = "src"
 test = "test"
 script = "script"
 solc_version = "0.8.24"
-
+remappings = ["@openzeppelin/=../node_modules/@openzeppelin/"]
+allow_paths = ["../node_modules"]

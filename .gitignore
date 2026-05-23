@@ -1,10 +1,20 @@
 node_modules/
+.idea/
+.DS_Store
 frontend/dist/
+
+# Solidity build artifacts and caches
 out/
 cache/
+broadcast/
+artifacts/
+hardhat-artifacts/
+hardhat-cache/
+
 contracts/out/
 contracts/cache/
 contracts/broadcast/
+contracts/artifacts/
 contracts/hardhat-artifacts/
 contracts/hardhat-cache/
 package-lock.json
