@@ -58,4 +58,22 @@ contract ParkCredit is ERC1155, Ownable {
         burners[account] = status;
         emit BurnerUpdated(account, status);
     }
+
+    //
+    function mint(
+        address to, 
+        uint256 amount 
+    ) external onlyMinter {
+        _mint(to, PARK_CREDIT, amount, "");
+        emit CreditsMinted(to, amount);
+    }
+
+    function burn(
+        address from, 
+        uint256 amount 
+    ) external onlyBurner {
+        _burn(from, PARK_CREDIT, amount);
+        emit CreditsMinted(from, amount);
+    }
+
 }
