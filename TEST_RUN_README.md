@@ -60,7 +60,7 @@ npm run build:contracts
 npm run test:contracts
 ```
 
-Expected test result:
+Expected Hardhat test result:
 
 ```text
 11 passing
@@ -70,6 +70,18 @@ The Hardhat tests are TypeScript `node:test` tests using viem. They live in:
 
 ```text
 contracts/hardhat-test/
+```
+
+The CI contract suite uses Foundry. Run it from the repository root with:
+
+```bash
+forge test --root contracts
+```
+
+Expected Foundry result:
+
+```text
+42 passed
 ```
 
 ## 4. Start a Local Hardhat Blockchain
@@ -129,11 +141,15 @@ npm run deploy:contracts:local
 After successful deployment, Hardhat prints contract addresses like:
 
 ```text
+ParkCredit: 0x...
+MembershipManager: 0x...
 OperatorRegistry: 0x...
 OperatorTreasury: 0x...
 ```
 
-Copy both addresses. You will paste them into the frontend.
+The script also grants `MembershipManager` the ParkCredit minter role and configures the Urban, Commuter, and Unlimited tiers.
+
+Copy the addresses. You will paste them into the frontend.
 
 ## 6. Configure MetaMask
 
@@ -192,8 +208,10 @@ In the frontend:
 1. Click `Connect Wallet`.
 2. Select MetaMask.
 3. Make sure MetaMask is connected to `Hardhat Local`.
-4. Paste the deployed `OperatorRegistry` address.
-5. Paste the deployed `OperatorTreasury` address.
+4. Paste the deployed `ParkCredit` address.
+5. Paste the deployed `MembershipManager` address.
+6. Paste the deployed `OperatorRegistry` address.
+7. Paste the deployed `OperatorTreasury` address.
 
 ## 9. Role Rules
 
@@ -201,6 +219,7 @@ The connected wallet determines which contract actions are allowed.
 
 Admin/deployer wallet:
 
+- Set membership tiers.
 - Register operator.
 - Remove operator.
 - Set supported category.
@@ -215,6 +234,9 @@ Operator wallet:
 
 Any wallet:
 
+- Purchase or renew a membership by sending the exact tier price.
+- Read ParkCredit balance.
+- Read membership activity, tier, cap, and expiry.
 - Read whitelist status.
 - Read category support.
 - Read price.
@@ -322,7 +344,7 @@ Expected output:
 
 ## 11. Current Limitation
 
-The current frontend can call all methods currently exposed for `OperatorRegistry` and `OperatorTreasury`.
+The current frontend can call the MVP methods exposed for `MembershipManager`, `ParkCredit` balance reads, `OperatorRegistry`, and `OperatorTreasury`.
 
 However, `allocateEarnings` is not exposed as a normal frontend button because it is intended to be called later by `ParkingLedger`.
 
