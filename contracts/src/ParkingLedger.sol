@@ -9,7 +9,11 @@ contract ParkingLedger is Ownable {
     // define slot categories 
     enum SlotCategory {
         Standard,
-        Accessible
+        Accessible, 
+        EVCharging, 
+        Motorbike, 
+        Family,
+        WomenOnly
     }
 
     enum ReservationStatus {
