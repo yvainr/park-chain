@@ -2,6 +2,7 @@ node_modules/
 .idea/
 .DS_Store
 frontend/dist/
+frontend/.vite/
 
 # Solidity build artifacts and caches
 out/
