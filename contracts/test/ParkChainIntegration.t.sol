@@ -5,7 +5,13 @@ import {MembershipManager, IMembershipParkCredit} from "../src/MembershipManager
 import {OperatorRegistry} from "../src/OperatorRegistry.sol";
 import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 import {ParkCredit} from "../src/ParkCredit.sol";
-import {ParkingLedger} from "../src/ParkingLedger.sol";
+import {
+    IParkingMembershipManager,
+    IParkingOperatorRegistry,
+    IParkingOperatorTreasury,
+    IParkingParkCredit,
+    ParkingLedger
+} from "../src/ParkingLedger.sol";
 
 interface IntegrationVm {
     function deal(address account, uint256 newBalance) external;
@@ -56,14 +62,24 @@ contract ParkChainIntegrationTest {
                 )
             )
         );
-        ledger = ParkingLedger(vm.deployCode("src/ParkingLedger.sol:ParkingLedger"));
+        ledger = ParkingLedger(
+            vm.deployCode(
+                "src/ParkingLedger.sol:ParkingLedger",
+                abi.encode(
+                    IParkingMembershipManager(address(membership)),
+                    IParkingOperatorRegistry(address(registry)),
+                    IParkingParkCredit(address(credit)),
+                    IParkingOperatorTreasury(address(treasury))
+                )
+            )
+        );
 
         credit.setMinter(address(membership), true);
-        credit.setBurner(address(this), true);
+        credit.setBurner(address(ledger), true);
 
         membership.setTier(URBAN, "Urban", 100, 0.01 ether, 20, true);
         ledger.setGracePeriod(15);
-        treasury.setAllocator(address(this));
+        treasury.setAllocator(address(ledger));
 
         bytes32[] memory categories = new bytes32[](2);
         categories[0] = STANDARD;
@@ -97,7 +113,7 @@ contract ParkChainIntegrationTest {
         uint256 startTime = block.timestamp + 1 hours;
 
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 2);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 2);
 
         uint256[] memory reservations = ledger.getActiveReservation(member);
         require(reservations.length == 1, "reservation list length mismatch");
@@ -106,7 +122,7 @@ contract ParkChainIntegrationTest {
         ParkingLedger.Reservation memory reserved = ledger.getReservation(0);
         require(reserved.member == member, "reservation member mismatch");
         require(reserved.operatorID == OPERATOR_ID, "reservation operator mismatch");
-        require(uint256(reserved.category) == uint256(ParkingLedger.SlotCategory.Standard), "category mismatch");
+        require(reserved.category == STANDARD, "category mismatch");
         require(reserved.status == ParkingLedger.ReservationStatus.Reserved, "reservation should be reserved");
 
         vm.warp(startTime);
@@ -114,9 +130,6 @@ contract ParkChainIntegrationTest {
         ledger.checkIn(0);
 
         uint256 reservedFee = registry.getPricePerHour(OPERATOR_ID, STANDARD) * reserved.duration;
-        credit.burn(member, reservedFee);
-        treasury.allocateEarnings(OPERATOR_ID, reservedFee);
-
         ParkingLedger.Reservation memory checkedIn = ledger.getReservation(0);
         require(checkedIn.checkInTime == startTime, "check-in time mismatch");
         require(checkedIn.status == ParkingLedger.ReservationStatus.CheckedIn, "reservation should be checked in");
@@ -146,7 +159,7 @@ contract ParkChainIntegrationTest {
 
         uint256 cancelStart = block.timestamp + 1 hours;
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.EVCharging, cancelStart, 1);
+        ledger.reserve(OPERATOR_ID, EV_CHARGING, cancelStart, 1);
 
         vm.prank(member);
         ledger.cancelReservation(0);
@@ -157,15 +170,12 @@ contract ParkChainIntegrationTest {
 
         uint256 noShowStart = block.timestamp + 2 hours;
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, noShowStart, 1);
+        ledger.reserve(OPERATOR_ID, STANDARD, noShowStart, 1);
 
         vm.warp(noShowStart);
         ledger.markNoShow(1);
 
         uint256 noShowFee = registry.getNoShowFee(OPERATOR_ID);
-        credit.burn(member, noShowFee);
-        treasury.allocateEarnings(OPERATOR_ID, noShowFee);
-
         ParkingLedger.Reservation memory noShow = ledger.getReservation(1);
         require(noShow.status == ParkingLedger.ReservationStatus.NoShow, "reservation should be no-show");
         require(credit.balanceOf(member, credit.PARK_CREDIT()) == 96, "credits after no-show mismatch");
@@ -176,38 +186,45 @@ contract ParkChainIntegrationTest {
         uint256 startTime = block.timestamp + 1 hours;
 
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 1);
+        vm.expectRevert(bytes("ParkingLedger: inactive member"));
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 1);
 
         vm.prank(member);
-        vm.expectRevert(bytes("Not the right time"));
+        membership.purchaseMembership{value: 0.01 ether}(URBAN);
+
+        vm.prank(member);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 1);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("ParkingLedger: too early"));
         ledger.checkIn(0);
 
         vm.prank(member);
         ledger.cancelReservation(0);
 
         vm.prank(member);
-        vm.expectRevert(bytes("Invalid status"));
+        vm.expectRevert(bytes("ParkingLedger: invalid status"));
         ledger.checkIn(0);
 
         vm.prank(member);
-        vm.expectRevert(bytes("Invalid status"));
+        vm.expectRevert(bytes("ParkingLedger: invalid status"));
         ledger.checkOut(0);
 
-        vm.expectRevert(bytes("Invalid status"));
+        vm.expectRevert(bytes("ParkingLedger: invalid status"));
         ledger.markNoShow(0);
 
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime + 1 hours, 1);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime + 1 hours, 1);
 
         vm.warp(startTime + 1 hours);
         ledger.markNoShow(1);
 
         vm.prank(member);
-        vm.expectRevert(bytes("Invalid status"));
+        vm.expectRevert(bytes("ParkingLedger: invalid status"));
         ledger.checkIn(1);
 
         vm.prank(member);
-        vm.expectRevert(bytes("Invalid status"));
+        vm.expectRevert(bytes("ParkingLedger: invalid status"));
         ledger.cancelReservation(1);
     }
 

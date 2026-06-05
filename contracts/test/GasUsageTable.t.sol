@@ -5,7 +5,13 @@ import {MembershipManager, IMembershipParkCredit} from "../src/MembershipManager
 import {OperatorRegistry} from "../src/OperatorRegistry.sol";
 import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 import {ParkCredit} from "../src/ParkCredit.sol";
-import {ParkingLedger} from "../src/ParkingLedger.sol";
+import {
+    IParkingMembershipManager,
+    IParkingOperatorRegistry,
+    IParkingOperatorTreasury,
+    IParkingParkCredit,
+    ParkingLedger
+} from "../src/ParkingLedger.sol";
 
 interface GasUsageVm {
     function deal(address account, uint256 newBalance) external;
@@ -48,14 +54,19 @@ contract GasUsageTableTest {
         membership = new MembershipManager(IMembershipParkCredit(address(credit)));
         registry = new OperatorRegistry();
         treasury = new OperatorTreasury(IOperatorRegistry(address(registry)), 0.001 ether);
-        ledger = new ParkingLedger();
+        ledger = new ParkingLedger(
+            IParkingMembershipManager(address(membership)),
+            IParkingOperatorRegistry(address(registry)),
+            IParkingParkCredit(address(credit)),
+            IParkingOperatorTreasury(address(treasury))
+        );
 
         credit.setMinter(address(membership), true);
-        credit.setBurner(address(this), true);
+        credit.setBurner(address(ledger), true);
 
         membership.setTier(URBAN, "Urban", 100, 0.01 ether, 20, true);
         ledger.setGracePeriod(15);
-        treasury.setAllocator(address(this));
+        treasury.setAllocator(address(ledger));
 
         bytes32[] memory categories = new bytes32[](1);
         categories[0] = STANDARD;
@@ -72,11 +83,11 @@ contract GasUsageTableTest {
 
         uint256 reserveGas = _measureReserve();
         _emitGasRow("ParkingLedger", "reserve", reserveGas, 0);
-        require(reserveGas < 205_000, "reserve gas regression");
+        require(reserveGas < 370_000, "reserve gas regression");
 
         uint256 checkInGas = _measureCheckIn();
         _emitGasRow("ParkingLedger", "checkIn", checkInGas, 0);
-        require(checkInGas < 80_000, "checkIn gas regression");
+        require(checkInGas < 100_000, "checkIn gas regression");
 
         uint256 allocateGas = _measureAllocateEarnings();
         _emitGasRow("OperatorTreasury", "allocateEarnings", allocateGas, 0);
@@ -117,17 +128,17 @@ contract GasUsageTableTest {
         uint256 gasBefore = gasleft();
 
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 2);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 2);
 
         gasUsed = gasBefore - gasleft();
     }
 
     function _measureCheckIn() private returns (uint256 gasUsed) {
         uint256 reservationId = ledger.nextReservationID();
-        uint256 startTime = block.timestamp + 2 hours;
+        uint256 startTime = block.timestamp + 4 hours;
 
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 2);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 2);
 
         vm.warp(startTime);
         uint256 gasBefore = gasleft();
@@ -141,12 +152,14 @@ contract GasUsageTableTest {
     function _measureAllocateEarnings() private returns (uint256 gasUsed) {
         uint256 gasBefore = gasleft();
 
+        vm.prank(address(ledger));
         treasury.allocateEarnings(OPERATOR_ID, 20);
 
         gasUsed = gasBefore - gasleft();
     }
 
     function _measureWithdraw() private returns (uint256 gasUsed) {
+        vm.prank(address(ledger));
         treasury.allocateEarnings(OPERATOR_ID, 20);
         vm.deal(address(treasury), 1 ether);
 
@@ -196,7 +209,12 @@ contract GasUsageTableTest {
 
     function _measureDeployParkingLedger() private returns (uint256 gasUsed) {
         uint256 gasBefore = gasleft();
-        ParkingLedger tmp = new ParkingLedger();
+        ParkingLedger tmp = new ParkingLedger(
+            IParkingMembershipManager(address(membership)),
+            IParkingOperatorRegistry(address(registry)),
+            IParkingParkCredit(address(credit)),
+            IParkingOperatorTreasury(address(treasury))
+        );
         gasUsed = gasBefore - gasleft();
     }
 }
