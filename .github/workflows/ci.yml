@@ -8,7 +8,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check repository scaffold
         run: |
@@ -22,6 +22,22 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Verify Foundry
+        run: |
+          forge --version
+
+      - name: Run Foundry unit tests
+        run: |
+          forge test --root contracts
+
+      - name: Run Foundry fuzz tests (quick)
+        run: |
+          forge test --root contracts --match-path contracts/test/FuzzParkChain.t.sol --fuzz-runs 50
+
+      - name: Run Foundry invariants
+        run: |
+          forge invariant --root contracts
 
       - name: Run contract tests
         run: forge test --root contracts
