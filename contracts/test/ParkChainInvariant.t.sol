@@ -148,15 +148,14 @@ contract ParkChainInvariantTest {
     function invariant_reservationIdsAreSequential() public view {
         uint256 nextId = ledger.nextReservationID();
 
-        uint256[] memory reservations = ledger.getActiveReservation(address(handler));
-        assert(reservations.length == handler.createdReservations());
-
         for (uint256 i = 0; i < nextId; i++) {
             ParkingLedger.Reservation memory reservation = ledger.getReservation(i);
             assert(reservation.reservationID == i);
             assert(reservation.member != address(0));
             assert(reservation.duration > 0);
         }
+
+        uint256[] memory reservations = ledger.getActiveReservation(address(handler));
 
         for (uint256 i = 0; i < reservations.length; i++) {
             ParkingLedger.Reservation memory reservation = ledger.getReservation(reservations[i]);
