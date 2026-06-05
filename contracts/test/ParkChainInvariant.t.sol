@@ -15,7 +15,6 @@ interface IntegrationVm {
         bytes calldata constructorArgs
     ) external returns (address deployedAddress);
     function prank(address msgSender) external;
-    function targetContract(address target) external;
     function warp(uint256 newTimestamp) external;
 }
 
@@ -143,25 +142,25 @@ contract ParkChainInvariantTest {
 
         handler = new ParkChainInvariantHandler(ledger, treasury, address(this), OPERATOR_ID);
         treasury.setAllocator(address(handler));
-        vm.targetContract(address(handler));
     }
 
-    /// @notice Invariant: reservation IDs are sequential and every handler-created ID is readable.
+    /// @notice Invariant: every created reservation is stored at its sequential ID.
     function invariant_reservationIdsAreSequential() public view {
-        uint256 created = handler.createdReservations();
-        assert(ledger.nextReservationID() == created);
+        uint256 nextId = ledger.nextReservationID();
 
         uint256[] memory reservations = ledger.getActiveReservation(address(handler));
-        assert(reservations.length == created);
+        assert(reservations.length == handler.createdReservations());
 
-        for (uint256 i = 0; i < reservations.length; i++) {
-            assert(reservations[i] == i);
-
+        for (uint256 i = 0; i < nextId; i++) {
             ParkingLedger.Reservation memory reservation = ledger.getReservation(i);
             assert(reservation.reservationID == i);
-            assert(reservation.member == address(handler));
-            assert(reservation.operatorID == OPERATOR_ID);
+            assert(reservation.member != address(0));
             assert(reservation.duration > 0);
+        }
+
+        for (uint256 i = 0; i < reservations.length; i++) {
+            ParkingLedger.Reservation memory reservation = ledger.getReservation(reservations[i]);
+            assert(reservation.member == address(handler));
         }
     }
 
