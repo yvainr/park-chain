@@ -44,19 +44,19 @@ contract ParkChainIntegrationTest {
         vm.deal(operatorWallet, 1 ether);
         vm.deal(stranger, 1 ether);
 
-        credit = ParkCredit(vm.deployCode("ParkCredit.sol:ParkCredit"));
+        credit = ParkCredit(vm.deployCode("src/ParkCredit.sol:ParkCredit"));
         membership = MembershipManager(
-            vm.deployCode("MembershipManager.sol:MembershipManager", abi.encode(IMembershipParkCredit(address(credit))))
+            vm.deployCode("src/MembershipManager.sol:MembershipManager", abi.encode(IMembershipParkCredit(address(credit))))
         );
-        registry = OperatorRegistry(vm.deployCode("OperatorRegistry.sol:OperatorRegistry"));
+        registry = OperatorRegistry(vm.deployCode("src/OperatorRegistry.sol:OperatorRegistry"));
         treasury = OperatorTreasury(
             payable(
                 vm.deployCode(
-                    "OperatorTreasury.sol:OperatorTreasury", abi.encode(IOperatorRegistry(address(registry)), 0.001 ether)
+                    "src/OperatorTreasury.sol:OperatorTreasury", abi.encode(IOperatorRegistry(address(registry)), 0.001 ether)
                 )
             )
         );
-        ledger = ParkingLedger(vm.deployCode("ParkingLedger.sol:ParkingLedger"));
+        ledger = ParkingLedger(vm.deployCode("src/ParkingLedger.sol:ParkingLedger"));
 
         credit.setMinter(address(membership), true);
         credit.setBurner(address(this), true);
