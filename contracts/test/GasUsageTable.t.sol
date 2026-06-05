@@ -35,7 +35,8 @@ contract GasUsageTableTest {
         uint256 gasUsed,
         uint256 costWeiAtOneGwei,
         uint256 costWeiAtTenGwei,
-        uint256 costWeiAtThirtyGwei
+        uint256 costWeiAtThirtyGwei,
+        uint256 deployCostWei
     );
 
     function setUp() public {
@@ -66,23 +67,39 @@ contract GasUsageTableTest {
 
     function testGasUsageTableForCoreActions() public {
         uint256 purchaseGas = _measurePurchaseMembership();
-        _emitGasRow("MembershipManager", "purchaseMembership", purchaseGas);
+        _emitGasRow("MembershipManager", "purchaseMembership", purchaseGas, 0);
         require(purchaseGas < 125_000, "purchaseMembership gas regression");
 
         uint256 reserveGas = _measureReserve();
-        _emitGasRow("ParkingLedger", "reserve", reserveGas);
+        _emitGasRow("ParkingLedger", "reserve", reserveGas, 0);
         require(reserveGas < 205_000, "reserve gas regression");
 
         uint256 checkInGas = _measureCheckIn();
-        _emitGasRow("ParkingLedger", "checkIn", checkInGas);
+        _emitGasRow("ParkingLedger", "checkIn", checkInGas, 0);
         require(checkInGas < 80_000, "checkIn gas regression");
 
         uint256 allocateGas = _measureAllocateEarnings();
-        _emitGasRow("OperatorTreasury", "allocateEarnings", allocateGas);
+        _emitGasRow("OperatorTreasury", "allocateEarnings", allocateGas, 0);
         require(allocateGas < 60_000, "allocateEarnings gas regression");
 
         uint256 withdrawGas = _measureWithdraw();
-        _emitGasRow("OperatorTreasury", "withdraw", withdrawGas);
+        _emitGasRow("OperatorTreasury", "withdraw", withdrawGas, 0);
+        
+        // Measure deploy gas for core contracts and emit rows with deploy cost at 30 gwei
+        uint256 d1 = _measureDeployParkCredit();
+        _emitGasRow("ParkCredit", "deploy", d1, d1 * 30 gwei);
+
+        uint256 d2 = _measureDeployMembership();
+        _emitGasRow("MembershipManager", "deploy", d2, d2 * 30 gwei);
+
+        uint256 d3 = _measureDeployOperatorRegistry();
+        _emitGasRow("OperatorRegistry", "deploy", d3, d3 * 30 gwei);
+
+        uint256 d4 = _measureDeployOperatorTreasury();
+        _emitGasRow("OperatorTreasury", "deploy", d4, d4 * 30 gwei);
+
+        uint256 d5 = _measureDeployParkingLedger();
+        _emitGasRow("ParkingLedger", "deploy", d5, d5 * 30 gwei);
         require(withdrawGas < 65_000, "withdraw gas regression");
     }
 
@@ -141,14 +158,45 @@ contract GasUsageTableTest {
         gasUsed = gasBefore - gasleft();
     }
 
-    function _emitGasRow(string memory contractName, string memory action, uint256 gasUsed) private {
+    function _emitGasRow(string memory contractName, string memory action, uint256 gasUsed, uint256 deployCostWei) private {
         emit GasTableRow(
             contractName,
             action,
             gasUsed,
             gasUsed * 1 gwei,
             gasUsed * 10 gwei,
-            gasUsed * 30 gwei
+            gasUsed * 30 gwei,
+            deployCostWei
         );
+    }
+
+    function _measureDeployParkCredit() private returns (uint256 gasUsed) {
+        uint256 gasBefore = gasleft();
+        ParkCredit tmp = new ParkCredit();
+        gasUsed = gasBefore - gasleft();
+    }
+
+    function _measureDeployMembership() private returns (uint256 gasUsed) {
+        uint256 gasBefore = gasleft();
+        MembershipManager tmp = new MembershipManager(IMembershipParkCredit(address(credit)));
+        gasUsed = gasBefore - gasleft();
+    }
+
+    function _measureDeployOperatorRegistry() private returns (uint256 gasUsed) {
+        uint256 gasBefore = gasleft();
+        OperatorRegistry tmp = new OperatorRegistry();
+        gasUsed = gasBefore - gasleft();
+    }
+
+    function _measureDeployOperatorTreasury() private returns (uint256 gasUsed) {
+        uint256 gasBefore = gasleft();
+        OperatorTreasury tmp = new OperatorTreasury(IOperatorRegistry(address(registry)), 0.001 ether);
+        gasUsed = gasBefore - gasleft();
+    }
+
+    function _measureDeployParkingLedger() private returns (uint256 gasUsed) {
+        uint256 gasBefore = gasleft();
+        ParkingLedger tmp = new ParkingLedger();
+        gasUsed = gasBefore - gasleft();
     }
 }

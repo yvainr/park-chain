@@ -5,6 +5,8 @@ input_path="${1:-gas-usage-trace.txt}"
 output_path="${2:-gas-usage-table.md}"
 # Optional: ETH price in USD to compute approximate USD cost (default: 2000)
 eth_price_usd="${3:-2000}"
+# Optional: L2 gas price in gwei to estimate L2 USD cost (default: 1 gwei)
+l2_gwei="${4:-1}"
 
 tmp_rows="$(mktemp)"
 grep 'emit GasTableRow' "$input_path" > "$tmp_rows"
@@ -35,8 +37,8 @@ format_int() {
 {
   echo "# Gas Usage Table"
   echo
-  echo "| Contract | Action | Gas Used | ETH at 1 gwei | ETH at 10 gwei | ETH at 30 gwei | Approx USD (30 gwei) |"
-  echo "|---|---|---:|---:|---:|---:|---:|"
+  echo "| Contract | Action | Gas Used | ETH at 1 gwei | ETH at 10 gwei | ETH at 30 gwei | Deploy Cost (ETH at 30 gwei) | Approx USD (30 gwei) | Approx USD (L2 ${l2_gwei} gwei) |"
+  echo "|---|---|---:|---:|---:|---:|---:|---:|---:|"
 
   while IFS= read -r row; do
     contract_name="$(sed -n 's/.*contractName: "\([^"]*\)".*/\1/p' <<< "$row")"
@@ -45,11 +47,21 @@ format_int() {
     one_gwei="$(sed -n 's/.*costWeiAtOneGwei: \([0-9]*\).*/\1/p' <<< "$row")"
     ten_gwei="$(sed -n 's/.*costWeiAtTenGwei: \([0-9]*\).*/\1/p' <<< "$row")"
     thirty_gwei="$(sed -n 's/.*costWeiAtThirtyGwei: \([0-9]*\).*/\1/p' <<< "$row")"
+    # try to extract an optional deploy cost (in wei) if present in the trace
+    deploy_cost_wei="$(sed -n 's/.*deployCostWei: \([0-9]*\).*/\1/p' <<< "$row" || true)"
+    if [ -n "$deploy_cost_wei" ]; then
+      deploy_cost_eth="$(wei_to_eth "$deploy_cost_wei")"
+    else
+      deploy_cost_eth=""
+    fi
 
     thirty_eth="$(wei_to_eth "$thirty_gwei")"
     approx_usd="$(awk -v eth="$thirty_eth" -v price="$eth_price_usd" 'BEGIN { printf "%.2f", eth * price }')"
 
-    echo "| \`$contract_name\` | \`$action\` | $(format_int "$gas_used") | $(wei_to_eth "$one_gwei") | $(wei_to_eth "$ten_gwei") | $(wei_to_eth "$thirty_gwei") | $approx_usd |"
+    # L2 USD: use the one_gwei value scaled by l2_gwei
+    approx_l2_usd="$(awk -v onewei="$one_gwei" -v l2="$l2_gwei" -v price="$eth_price_usd" 'BEGIN { eth = (onewei * l2) / 1000000000000000000; printf "%.2f", eth * price }')"
+
+    echo "| \`$contract_name\` | \`$action\` | $(format_int "$gas_used") | $(wei_to_eth "$one_gwei") | $(wei_to_eth "$ten_gwei") | $(wei_to_eth "$thirty_gwei") | $deploy_cost_eth | $approx_usd | $approx_l2_usd |"
   done < "$tmp_rows"
 
   echo
