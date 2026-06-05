@@ -5,10 +5,11 @@ import {
   operatorRegistryAbi,
   operatorTreasuryAbi,
   parkCreditAbi,
+  parkingLedgerAbi,
 } from "./abi/contracts";
 import { connectWallet, readContract, toAddress, toUint, writeContract } from "./lib/wallet";
 
-const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike"] as const;
+const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike", "family", "women"] as const;
 const PARK_CREDIT_ID = 1n;
 
 type CategoryName = (typeof CATEGORY_NAMES)[number];
@@ -65,6 +66,13 @@ function Badge({ variant = "secondary", className = "", ...props }: any) {
 function formatReadResult(result: unknown) {
   if (typeof result === "bigint") return result.toString();
   if (typeof result === "boolean") return String(result);
+  if (typeof result === "object" && result !== null) {
+    return JSON.stringify(
+      result,
+      (_key, value) => (typeof value === "bigint" ? value.toString() : value),
+      2,
+    );
+  }
   return String(result ?? "");
 }
 
@@ -93,6 +101,7 @@ export function App() {
   const [membershipAddress, setMembershipAddress] = useState("");
   const [registryAddress, setRegistryAddress] = useState("");
   const [treasuryAddress, setTreasuryAddress] = useState("");
+  const [ledgerAddress, setLedgerAddress] = useState("");
   const [tierId, setTierId] = useState("1");
   const [tierName, setTierName] = useState("Urban");
   const [tierCredits, setTierCredits] = useState("80");
@@ -110,11 +119,18 @@ export function App() {
   const [noShowFee, setNoShowFee] = useState("5");
   const [allocator, setAllocator] = useState("");
   const [creditRate, setCreditRate] = useState("1000000000000000");
+  const [gracePeriodMinutes, setGracePeriodMinutes] = useState("15");
+  const [reservationId, setReservationId] = useState("0");
+  const [reservationStartTime, setReservationStartTime] = useState(String(Math.floor(Date.now() / 1000) + 3600));
+  const [reservationDuration, setReservationDuration] = useState("2");
+  const [monthKey, setMonthKey] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Record<CategoryName, boolean>>({
     standard: true,
     disabled: false,
     "ev-charging": true,
     motorbike: false,
+    "family": false,
+    "women": false,
   });
   const [output, setOutput] = useState("Connect a wallet and paste contract addresses to begin.");
 
@@ -160,6 +176,10 @@ export function App() {
     return toAddress(treasuryAddress, "OperatorTreasury address");
   }
 
+  function requireLedger() {
+    return toAddress(ledgerAddress, "ParkingLedger address");
+  }
+
   function memberReadAddress() {
     const target = memberLookup.trim() || account;
     if (!target) throw new Error("Connect wallet or enter a member address");
@@ -200,6 +220,7 @@ export function App() {
         <span>{membershipAddress ? "Membership address set" : "Membership address missing"}</span>
         <span>{registryAddress ? "Registry address set" : "Registry address missing"}</span>
         <span>{treasuryAddress ? "Treasury address set" : "Treasury address missing"}</span>
+        <span>{ledgerAddress ? "Ledger address set" : "Ledger address missing"}</span>
       </div>
 
       <div className="layout">
@@ -225,6 +246,10 @@ export function App() {
               <Label>
                 <span>OperatorTreasury address</span>
                 <Input value={treasuryAddress} onChange={(event: any) => setTreasuryAddress(event.target.value)} />
+              </Label>
+              <Label>
+                <span>ParkingLedger address</span>
+                <Input value={ledgerAddress} onChange={(event: any) => setLedgerAddress(event.target.value)} />
               </Label>
             </CardContent>
           </Card>
@@ -445,6 +470,28 @@ export function App() {
                 Set Exchange Rate
               </Button>
             </div>
+
+            <div className="grid two">
+              <Label>
+                <span>Grace period minutes</span>
+                <Input value={gracePeriodMinutes} onChange={(event: any) => setGracePeriodMinutes(event.target.value)} />
+              </Label>
+            </div>
+
+            <div className="actions">
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Set grace period", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "setGracePeriodMinutes", [
+                      toUint(gracePeriodMinutes, "Grace period minutes"),
+                    ]),
+                  )
+                }
+              >
+                Set Grace Period
+              </Button>
+            </div>
           </CardContent>
         )}
 
@@ -462,6 +509,21 @@ export function App() {
                   value={memberLookup}
                   onChange={(event: any) => setMemberLookup(event.target.value)}
                 />
+              </Label>
+            </div>
+
+            <div className="grid three">
+              <Label>
+                <span>Reservation ID</span>
+                <Input value={reservationId} onChange={(event: any) => setReservationId(event.target.value)} />
+              </Label>
+              <Label>
+                <span>Start timestamp</span>
+                <Input value={reservationStartTime} onChange={(event: any) => setReservationStartTime(event.target.value)} />
+              </Label>
+              <Label>
+                <span>Duration hours</span>
+                <Input value={reservationDuration} onChange={(event: any) => setReservationDuration(event.target.value)} />
               </Label>
             </div>
 
@@ -496,6 +558,65 @@ export function App() {
                 }
               >
                 Renew Membership
+              </Button>
+            </div>
+
+            <div className="actions">
+              <Button
+                onClick={() =>
+                  run("Reserve slot", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "reserve", [
+                      toUint(operatorId, "Operator ID"),
+                      categoryHash,
+                      toUint(reservationStartTime, "Start timestamp"),
+                      toUint(reservationDuration, "Duration hours"),
+                    ]),
+                  )
+                }
+              >
+                Reserve
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Cancel reservation", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "cancelReservation", [
+                      toUint(reservationId, "Reservation ID"),
+                    ]),
+                  )
+                }
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Check in", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "checkIn", [toUint(reservationId, "Reservation ID")]),
+                  )
+                }
+              >
+                Check In
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Check out", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "checkOut", [toUint(reservationId, "Reservation ID")]),
+                  )
+                }
+              >
+                Check Out
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Mark no-show", () =>
+                    txBase(requireLedger(), parkingLedgerAbi, "markNoShow", [toUint(reservationId, "Reservation ID")]),
+                  )
+                }
+              >
+                Mark No-Show
               </Button>
             </div>
 
@@ -576,6 +697,36 @@ export function App() {
                 }
               >
                 Get Expiry
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Member reservations", () =>
+                    readContract({
+                      address: requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "getMemberReservations",
+                      args: [memberReadAddress()],
+                    }),
+                  )
+                }
+              >
+                Get Reservations
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Reservation", () =>
+                    readContract({
+                      address: requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "getReservation",
+                      args: [toUint(reservationId, "Reservation ID")],
+                    }),
+                  )
+                }
+              >
+                Get Reservation
               </Button>
             </div>
           </CardContent>
@@ -740,6 +891,55 @@ export function App() {
                 }
               >
                 Get Rate
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Month key", () =>
+                    readContract({
+                      address: requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "getMonthKey",
+                      args: [toUint(reservationStartTime, "Start timestamp")],
+                    }),
+                  )
+                }
+              >
+                Get Month Key
+              </Button>
+              <Label>
+                <span>Month key for usage reads</span>
+                <Input value={monthKey} onChange={(event: any) => setMonthKey(event.target.value)} />
+              </Label>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Used category hours", () =>
+                    readContract({
+                      address: requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "getUsedHoursByCategory",
+                      args: [memberReadAddress(), categoryHash, toUint(monthKey, "Month key")],
+                    }),
+                  )
+                }
+              >
+                Used Category Hours
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  run("Used operator hours", () =>
+                    readContract({
+                      address: requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "getUsedHoursByOperator",
+                      args: [memberReadAddress(), toUint(operatorId, "Operator ID"), toUint(monthKey, "Month key")],
+                    }),
+                  )
+                }
+              >
+                Used Operator Hours
               </Button>
             </div>
           </CardContent>
