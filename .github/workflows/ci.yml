@@ -42,7 +42,7 @@ jobs:
 
       - name: Run Foundry invariants
         run: |
-          forge invariant --root contracts
+          forge test --root contracts --match-path contracts/test/ParkChainInvariant.t.sol --fuzz-runs 100
 
       - name: Run contract tests
         run: forge test --root contracts
