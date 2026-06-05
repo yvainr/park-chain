@@ -63,7 +63,7 @@ npm run test:contracts
 Expected Hardhat test result:
 
 ```text
-11 passing
+16 passing
 ```
 
 The Hardhat tests are TypeScript `node:test` tests using viem. They live in:
@@ -81,7 +81,7 @@ forge test --root contracts
 Expected Foundry result:
 
 ```text
-42 passed
+54 passed
 ```
 
 ## 4. Start a Local Hardhat Blockchain
@@ -145,9 +145,10 @@ ParkCredit: 0x...
 MembershipManager: 0x...
 OperatorRegistry: 0x...
 OperatorTreasury: 0x...
+ParkingLedger: 0x...
 ```
 
-The script also grants `MembershipManager` the ParkCredit minter role and configures the Urban, Commuter, and Unlimited tiers.
+The script also grants `MembershipManager` the ParkCredit minter role, grants `ParkingLedger` the ParkCredit burner role, sets `ParkingLedger` as the treasury allocator, configures a 15-minute grace period, and configures the Urban, Commuter, and Unlimited tiers.
 
 Copy the addresses. You will paste them into the frontend.
 
@@ -212,6 +213,7 @@ In the frontend:
 5. Paste the deployed `MembershipManager` address.
 6. Paste the deployed `OperatorRegistry` address.
 7. Paste the deployed `OperatorTreasury` address.
+8. Paste the deployed `ParkingLedger` address.
 
 ## 9. Role Rules
 
@@ -225,6 +227,7 @@ Admin/deployer wallet:
 - Set supported category.
 - Set treasury allocator.
 - Set exchange rate.
+- Set booking grace period.
 
 Operator wallet:
 
@@ -235,8 +238,10 @@ Operator wallet:
 Any wallet:
 
 - Purchase or renew a membership by sending the exact tier price.
+- Reserve, cancel, check in, check out, and mark no-shows through `ParkingLedger`.
 - Read ParkCredit balance.
 - Read membership activity, tier, cap, and expiry.
+- Read reservations and monthly usage.
 - Read whitelist status.
 - Read category support.
 - Read price.
@@ -342,14 +347,14 @@ Expected output:
 5
 ```
 
-## 11. Current Limitation
+### E. Reserve and Settle a Booking
 
-The current frontend can call the MVP methods exposed for `MembershipManager`, `ParkCredit` balance reads, `OperatorRegistry`, and `OperatorTreasury`.
+Switch MetaMask to a member account and purchase a membership with the exact tier price. Then:
 
-However, `allocateEarnings` is not exposed as a normal frontend button because it is intended to be called later by `ParkingLedger`.
+1. Set `Operator ID`, `Category`, `Start timestamp`, and `Duration hours`.
+2. Click `Reserve`.
+3. Use `Get Reservations` or `Get Reservation` to inspect the stored booking.
+4. At or after the start timestamp, click `Check In`.
+5. Click `Check Out` after the occupancy period.
 
-For now, treasury earnings are covered by Hardhat tests. Once `ParkingLedger` exists, it will become the allocator and will call:
-
-```solidity
-OperatorTreasury.allocateEarnings(operatorId, amountCredits)
-```
+Check `Get Credit Balance` and `Get Earnings` to confirm credits were burned and operator earnings were allocated.

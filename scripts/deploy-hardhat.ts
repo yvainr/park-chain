@@ -26,5 +26,22 @@ console.log("OperatorRegistry:", registry.address);
 const treasury = await viem.deployContract("OperatorTreasury", [registry.address, parseEther("0.001")]);
 console.log("OperatorTreasury:", treasury.address);
 
+const ledger = await viem.deployContract("ParkingLedger", [
+  membership.address,
+  registry.address,
+  credit.address,
+  treasury.address,
+]);
+console.log("ParkingLedger:", ledger.address);
+
+await credit.write.setBurner([ledger.address, true]);
+console.log("Granted ParkingLedger ParkCredit burner role");
+
+await treasury.write.setAllocator([ledger.address]);
+console.log("Set ParkingLedger as treasury allocator");
+
+await ledger.write.setGracePeriodMinutes([15n]);
+console.log("Configured default 15-minute grace period");
+
 const blockNumber = await client.getBlockNumber();
 console.log("Deployment complete at block:", blockNumber.toString());
