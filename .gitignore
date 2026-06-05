@@ -2,6 +2,7 @@ node_modules/
 .idea/
 .DS_Store
 frontend/dist/
+frontend/.vite/
 
 # Solidity build artifacts and caches
 out/
@@ -18,3 +19,7 @@ contracts/artifacts/
 contracts/hardhat-artifacts/
 contracts/hardhat-cache/
 package-lock.json
+
+# Generated CI reports
+gas-usage-table.md
+gas-usage-trace.txt
