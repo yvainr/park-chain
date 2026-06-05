@@ -14,6 +14,7 @@ interface IntegrationVm {
         string calldata artifactPath,
         bytes calldata constructorArgs
     ) external returns (address deployedAddress);
+    function expectRevert(bytes calldata revertData) external;
     function prank(address msgSender) external;
     function warp(uint256 newTimestamp) external;
 }
@@ -65,17 +66,12 @@ contract FuzzParkChainTest {
     /// @param duration number of hours reserved (1..24)
     /// @param price price per hour in credits (1..100)
     function testFuzz_reservationFee(uint8 duration, uint128 price) public {
-        // bounds
-        if (duration == 0) return;
-        if (duration > 24) return;
-        if (price == 0) return;
-        if (price > 100) return; // keep fee small so it fits into initial credits
-
-        setUp();
+        uint256 boundedDuration = (uint256(duration) % 24) + 1;
+        uint256 boundedPrice = (uint256(price) % (100 / boundedDuration)) + 1;
 
         // set operator price as operator wallet
         vm.prank(operatorWallet);
-        registry.setPricePerHour(OPERATOR_ID, STANDARD, uint256(price));
+        registry.setPricePerHour(OPERATOR_ID, STANDARD, boundedPrice);
 
         // member purchases membership
         vm.prank(member);
@@ -84,17 +80,14 @@ contract FuzzParkChainTest {
         // create reservation
         uint256 startTime = block.timestamp + 1 hours;
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, duration);
+        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, boundedDuration);
 
         // check-in at startTime
         vm.warp(startTime);
         vm.prank(member);
         ledger.checkIn(0);
 
-        uint256 expectedFee = uint256(price) * uint256(duration);
-        // skip randomized cases where member doesn't have enough credits
-        uint256 memberBalance = credit.balanceOf(member, credit.PARK_CREDIT());
-        if (expectedFee > memberBalance) return;
+        uint256 expectedFee = boundedPrice * boundedDuration;
         // burn credits and allocate earnings
         credit.burn(member, expectedFee);
         treasury.allocateEarnings(OPERATOR_ID, expectedFee);
@@ -102,5 +95,46 @@ contract FuzzParkChainTest {
         // assertions: credits decreased and earnings increased
         require(credit.balanceOf(member, credit.PARK_CREDIT()) + expectedFee == 100, "credit arithmetic mismatch");
         require(treasury.getAccumulatedEarnings(OPERATOR_ID) == expectedFee, "treasury earnings mismatch");
+    }
+
+    function testFuzz_membershipRenewalExtendsFromCurrentExpiry(uint32 elapsedSeconds) public {
+        vm.prank(member);
+        membership.purchaseMembership{value: 0.01 ether}(URBAN);
+
+        uint256 firstExpiry = membership.getMembershipExpiry(member);
+        uint256 elapsed = uint256(elapsedSeconds) % 29 days;
+        vm.warp(block.timestamp + elapsed);
+
+        vm.prank(member);
+        membership.renewMembership{value: 0.01 ether}(URBAN);
+
+        require(membership.getMembershipExpiry(member) == firstExpiry + membership.MEMBERSHIP_PERIOD(), "expiry mismatch");
+        require(credit.balanceOf(member, credit.PARK_CREDIT()) == 200, "renewal credits mismatch");
+    }
+
+    function testFuzz_reserveRejectsZeroDuration(uint256 operatorId, uint256 startOffset) public {
+        uint256 startTime = block.timestamp + (startOffset % 30 days) + 1;
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Invalid duration"));
+        ledger.reserve(operatorId, ParkingLedger.SlotCategory.Standard, startTime, 0);
+    }
+
+    function testFuzz_nonBookerCannotMutateReservation(address nonBooker) public {
+        if (nonBooker == member) return;
+
+        uint256 startTime = block.timestamp + 1 hours;
+        vm.prank(member);
+        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 1);
+
+        vm.prank(nonBooker);
+        vm.expectRevert(bytes("Not the booker"));
+        ledger.cancelReservation(0);
+
+        vm.warp(startTime);
+
+        vm.prank(nonBooker);
+        vm.expectRevert(bytes("Not the booker"));
+        ledger.checkIn(0);
     }
 }

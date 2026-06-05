@@ -172,6 +172,45 @@ contract ParkChainIntegrationTest {
         require(treasury.getAccumulatedEarnings(OPERATOR_ID) == 4, "no-show earnings mismatch");
     }
 
+    function testReservationLifecycleRejectsInvalidStateTransitions() public {
+        uint256 startTime = block.timestamp + 1 hours;
+
+        vm.prank(member);
+        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 1);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Not the right time"));
+        ledger.checkIn(0);
+
+        vm.prank(member);
+        ledger.cancelReservation(0);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Invalid status"));
+        ledger.checkIn(0);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Invalid status"));
+        ledger.checkOut(0);
+
+        vm.expectRevert(bytes("Invalid status"));
+        ledger.markNoShow(0);
+
+        vm.prank(member);
+        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime + 1 hours, 1);
+
+        vm.warp(startTime + 1 hours);
+        ledger.markNoShow(1);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Invalid status"));
+        ledger.checkIn(1);
+
+        vm.prank(member);
+        vm.expectRevert(bytes("Invalid status"));
+        ledger.cancelReservation(1);
+    }
+
     function testCrossContractGuardsProtectTheSystemSetup() public {
         vm.prank(stranger);
         vm.expectRevert(bytes("MembershipManager: not owner"));

@@ -15,7 +15,87 @@ interface IntegrationVm {
         bytes calldata constructorArgs
     ) external returns (address deployedAddress);
     function prank(address msgSender) external;
+    function targetContract(address target) external;
     function warp(uint256 newTimestamp) external;
+}
+
+contract ParkChainInvariantHandler {
+    IntegrationVm private constant vm = IntegrationVm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    ParkingLedger public immutable ledger;
+    OperatorTreasury public immutable treasury;
+
+    address private immutable ledgerOwner;
+    uint256 private immutable operatorId;
+
+    uint256 public createdReservations;
+    uint256 public allocatedCredits;
+
+    constructor(ParkingLedger ledger_, OperatorTreasury treasury_, address ledgerOwner_, uint256 operatorId_) {
+        ledger = ledger_;
+        treasury = treasury_;
+        ledgerOwner = ledgerOwner_;
+        operatorId = operatorId_;
+    }
+
+    function reserve(uint256 startOffset, uint8 duration) external {
+        uint256 boundedDuration = (uint256(duration) % 24) + 1;
+        uint256 startTime = block.timestamp + (startOffset % 30 days) + 1;
+
+        ledger.reserve(operatorId, ParkingLedger.SlotCategory.Standard, startTime, boundedDuration);
+        createdReservations++;
+    }
+
+    function cancel(uint256 seed) external {
+        if (createdReservations == 0) return;
+
+        uint256 reservationId = seed % createdReservations;
+        ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
+        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+        if (block.timestamp >= reservation.startTime) return;
+
+        ledger.cancelReservation(reservationId);
+    }
+
+    function checkIn(uint256 seed) external {
+        if (createdReservations == 0) return;
+
+        uint256 reservationId = seed % createdReservations;
+        ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
+        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+
+        vm.warp(reservation.startTime);
+        ledger.checkIn(reservationId);
+    }
+
+    function checkOut(uint256 seed) external {
+        if (createdReservations == 0) return;
+
+        uint256 reservationId = seed % createdReservations;
+        ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
+        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.CheckedIn) return;
+
+        ledger.checkOut(reservationId);
+    }
+
+    function markNoShow(uint256 seed) external {
+        if (createdReservations == 0) return;
+
+        uint256 reservationId = seed % createdReservations;
+        ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
+        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+
+        vm.warp(reservation.startTime);
+        vm.prank(ledgerOwner);
+        ledger.markNoShow(reservationId);
+    }
+
+    function allocate(uint96 amount) external {
+        uint256 boundedAmount = (uint256(amount) % 1_000) + 1;
+
+        treasury.allocateEarnings(operatorId, boundedAmount);
+        allocatedCredits += boundedAmount;
+    }
 }
 
 contract ParkChainInvariantTest {
@@ -29,6 +109,7 @@ contract ParkChainInvariantTest {
 
     address private member = address(0xA11CE);
     address private operatorWallet = address(0xB0B);
+    ParkChainInvariantHandler private handler;
 
     uint256 private constant URBAN = 1;
     uint256 private constant OPERATOR_ID = 77;
@@ -59,19 +140,33 @@ contract ParkChainInvariantTest {
         bytes32[] memory categories = new bytes32[](1);
         categories[0] = STANDARD;
         registry.registerOperator(OPERATOR_ID, operatorWallet, "Central Garage", categories);
+
+        handler = new ParkChainInvariantHandler(ledger, treasury, address(this), OPERATOR_ID);
+        treasury.setAllocator(address(handler));
+        vm.targetContract(address(handler));
     }
 
-    /// @notice Invariant: per-member active reservation count never exceeds global nextReservationID
-    function invariant_reservationCountsConservative() public view {
-        uint256[] memory reservations = ledger.getActiveReservation(member);
-        uint256 nextId = ledger.nextReservationID();
-        assert(reservations.length <= nextId);
+    /// @notice Invariant: reservation IDs are sequential and every handler-created ID is readable.
+    function invariant_reservationIdsAreSequential() public view {
+        uint256 created = handler.createdReservations();
+        assert(ledger.nextReservationID() == created);
+
+        uint256[] memory reservations = ledger.getActiveReservation(address(handler));
+        assert(reservations.length == created);
+
+        for (uint256 i = 0; i < reservations.length; i++) {
+            assert(reservations[i] == i);
+
+            ParkingLedger.Reservation memory reservation = ledger.getReservation(i);
+            assert(reservation.reservationID == i);
+            assert(reservation.member == address(handler));
+            assert(reservation.operatorID == OPERATOR_ID);
+            assert(reservation.duration > 0);
+        }
     }
 
-    /// @notice Invariant: accumulated earnings for operator fits a reasonable upper bound (safety check)
-    function invariant_treasuryBounded() public view {
-        uint256 acc = treasury.getAccumulatedEarnings(OPERATOR_ID);
-        // sanity bound: ensure test-run allocations (if any) are not absurdly large
-        assert(acc <= 1_000_000);
+    /// @notice Invariant: treasury accounting matches all successful handler allocations.
+    function invariant_treasuryMatchesAllocatedCredits() public view {
+        assert(treasury.getAccumulatedEarnings(OPERATOR_ID) == handler.allocatedCredits());
     }
 }
