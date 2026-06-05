@@ -28,21 +28,46 @@ jobs:
           foundryup || true
           forge --version
 
-      - name: Verify Foundry
-        run: |
-          forge --version
-
       - name: Run Foundry unit tests
+        id: foundry_unit_tests
         run: |
           forge test --root contracts
 
       - name: Run Foundry fuzz tests (quick)
+        id: foundry_fuzz_tests
         run: |
-          forge test --root contracts --match-path contracts/test/FuzzParkChain.t.sol --fuzz-runs 50
+          forge test --root contracts --match-contract FuzzParkChainTest --fuzz-runs 50
 
       - name: Run Foundry invariants
+        id: foundry_invariants
         run: |
-          forge test --root contracts --match-path contracts/test/ParkChainInvariant.t.sol --fuzz-runs 100
+          forge test --root contracts --match-contract ParkChainInvariantTest --fuzz-runs 100
 
-      - name: Run contract tests
-        run: forge test --root contracts
+      - name: Generate gas usage table
+        id: gas_usage_table
+        run: |
+          forge test --root contracts --match-contract GasUsageTableTest -vvvv | tee gas-usage-trace.txt
+          bash scripts/generate-gas-table.sh gas-usage-trace.txt gas-usage-table.md
+          cat gas-usage-table.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gas usage table
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-usage-table
+          path: |
+            gas-usage-table.md
+            gas-usage-trace.txt
+
+      - name: Generate test summary
+        if: always()
+        run: |
+          {
+            echo "## Test Summary"
+            echo
+            echo "| Suite | Command | Result |"
+            echo "|---|---|---|"
+            echo "| Foundry unit tests | \`forge test --root contracts\` | \`${{ steps.foundry_unit_tests.outcome }}\` |"
+            echo "| Foundry fuzz tests | \`forge test --root contracts --match-contract FuzzParkChainTest --fuzz-runs 50\` | \`${{ steps.foundry_fuzz_tests.outcome }}\` |"
+            echo "| Foundry invariants | \`forge test --root contracts --match-contract ParkChainInvariantTest --fuzz-runs 100\` | \`${{ steps.foundry_invariants.outcome }}\` |"
+            echo "| Gas usage table | \`forge test --root contracts --match-contract GasUsageTableTest -vvvv\` | \`${{ steps.gas_usage_table.outcome }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
