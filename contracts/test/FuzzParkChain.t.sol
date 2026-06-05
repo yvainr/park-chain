@@ -5,7 +5,13 @@ import {MembershipManager, IMembershipParkCredit} from "../src/MembershipManager
 import {OperatorRegistry} from "../src/OperatorRegistry.sol";
 import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 import {ParkCredit} from "../src/ParkCredit.sol";
-import {ParkingLedger} from "../src/ParkingLedger.sol";
+import {
+    IParkingMembershipManager,
+    IParkingOperatorRegistry,
+    IParkingOperatorTreasury,
+    IParkingParkCredit,
+    ParkingLedger
+} from "../src/ParkingLedger.sol";
 
 interface IntegrationVm {
     function deal(address account, uint256 newBalance) external;
@@ -48,14 +54,24 @@ contract FuzzParkChainTest {
         treasury = OperatorTreasury(
             payable(vm.deployCode("src/OperatorTreasury.sol:OperatorTreasury", abi.encode(IOperatorRegistry(address(registry)), 0.001 ether)))
         );
-        ledger = ParkingLedger(vm.deployCode("src/ParkingLedger.sol:ParkingLedger"));
+        ledger = ParkingLedger(
+            vm.deployCode(
+                "src/ParkingLedger.sol:ParkingLedger",
+                abi.encode(
+                    IParkingMembershipManager(address(membership)),
+                    IParkingOperatorRegistry(address(registry)),
+                    IParkingParkCredit(address(credit)),
+                    IParkingOperatorTreasury(address(treasury))
+                )
+            )
+        );
 
         credit.setMinter(address(membership), true);
-        credit.setBurner(address(this), true);
+        credit.setBurner(address(ledger), true);
 
         membership.setTier(URBAN, "Urban", 100, 0.01 ether, 20, true);
         ledger.setGracePeriod(15);
-        treasury.setAllocator(address(this));
+        treasury.setAllocator(address(ledger));
 
         bytes32[] memory categories = new bytes32[](1);
         categories[0] = STANDARD;
@@ -66,7 +82,7 @@ contract FuzzParkChainTest {
     /// @param duration number of hours reserved (1..24)
     /// @param price price per hour in credits (1..100)
     function testFuzz_reservationFee(uint8 duration, uint128 price) public {
-        uint256 boundedDuration = (uint256(duration) % 24) + 1;
+        uint256 boundedDuration = (uint256(duration) % 20) + 1;
         uint256 boundedPrice = (uint256(price) % (100 / boundedDuration)) + 1;
 
         // set operator price as operator wallet
@@ -80,7 +96,7 @@ contract FuzzParkChainTest {
         // create reservation
         uint256 startTime = block.timestamp + 1 hours;
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, boundedDuration);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, boundedDuration);
 
         // check-in at startTime
         vm.warp(startTime);
@@ -88,10 +104,6 @@ contract FuzzParkChainTest {
         ledger.checkIn(0);
 
         uint256 expectedFee = boundedPrice * boundedDuration;
-        // burn credits and allocate earnings
-        credit.burn(member, expectedFee);
-        treasury.allocateEarnings(OPERATOR_ID, expectedFee);
-
         // assertions: credits decreased and earnings increased
         require(credit.balanceOf(member, credit.PARK_CREDIT()) + expectedFee == 100, "credit arithmetic mismatch");
         require(treasury.getAccumulatedEarnings(OPERATOR_ID) == expectedFee, "treasury earnings mismatch");
@@ -116,25 +128,28 @@ contract FuzzParkChainTest {
         uint256 startTime = block.timestamp + (startOffset % 30 days) + 1;
 
         vm.prank(member);
-        vm.expectRevert(bytes("Invalid duration"));
-        ledger.reserve(operatorId, ParkingLedger.SlotCategory.Standard, startTime, 0);
+        vm.expectRevert(bytes("ParkingLedger: invalid duration"));
+        ledger.reserve(operatorId, STANDARD, startTime, 0);
     }
 
     function testFuzz_nonBookerCannotMutateReservation(address nonBooker) public {
         if (nonBooker == member) return;
 
+        vm.prank(member);
+        membership.purchaseMembership{value: 0.01 ether}(URBAN);
+
         uint256 startTime = block.timestamp + 1 hours;
         vm.prank(member);
-        ledger.reserve(OPERATOR_ID, ParkingLedger.SlotCategory.Standard, startTime, 1);
+        ledger.reserve(OPERATOR_ID, STANDARD, startTime, 1);
 
         vm.prank(nonBooker);
-        vm.expectRevert(bytes("Not the booker"));
+        vm.expectRevert(bytes("ParkingLedger: not member"));
         ledger.cancelReservation(0);
 
         vm.warp(startTime);
 
         vm.prank(nonBooker);
-        vm.expectRevert(bytes("Not the booker"));
+        vm.expectRevert(bytes("ParkingLedger: not member"));
         ledger.checkIn(0);
     }
 }

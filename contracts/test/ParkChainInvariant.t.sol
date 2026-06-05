@@ -5,7 +5,13 @@ import {MembershipManager, IMembershipParkCredit} from "../src/MembershipManager
 import {OperatorRegistry} from "../src/OperatorRegistry.sol";
 import {IOperatorRegistry, OperatorTreasury} from "../src/OperatorTreasury.sol";
 import {ParkCredit} from "../src/ParkCredit.sol";
-import {ParkingLedger} from "../src/ParkingLedger.sol";
+import {
+    IParkingMembershipManager,
+    IParkingOperatorRegistry,
+    IParkingOperatorTreasury,
+    IParkingParkCredit,
+    ParkingLedger
+} from "../src/ParkingLedger.sol";
 
 interface IntegrationVm {
     function deal(address account, uint256 newBalance) external;
@@ -25,15 +31,17 @@ contract ParkChainInvariantHandler {
     OperatorTreasury public immutable treasury;
 
     address private immutable ledgerOwner;
+    address private immutable member;
     uint256 private immutable operatorId;
 
     uint256 public createdReservations;
     uint256 public allocatedCredits;
 
-    constructor(ParkingLedger ledger_, OperatorTreasury treasury_, address ledgerOwner_, uint256 operatorId_) {
+    constructor(ParkingLedger ledger_, OperatorTreasury treasury_, address ledgerOwner_, address member_, uint256 operatorId_) {
         ledger = ledger_;
         treasury = treasury_;
         ledgerOwner = ledgerOwner_;
+        member = member_;
         operatorId = operatorId_;
     }
 
@@ -41,7 +49,8 @@ contract ParkChainInvariantHandler {
         uint256 boundedDuration = (uint256(duration) % 24) + 1;
         uint256 startTime = block.timestamp + (startOffset % 30 days) + 1;
 
-        ledger.reserve(operatorId, ParkingLedger.SlotCategory.Standard, startTime, boundedDuration);
+        vm.prank(member);
+        ledger.reserve(operatorId, keccak256("standard"), startTime, boundedDuration);
         createdReservations++;
     }
 
@@ -50,9 +59,10 @@ contract ParkChainInvariantHandler {
 
         uint256 reservationId = seed % createdReservations;
         ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
-        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+        if (reservation.member != member || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
         if (block.timestamp >= reservation.startTime) return;
 
+        vm.prank(member);
         ledger.cancelReservation(reservationId);
     }
 
@@ -61,9 +71,10 @@ contract ParkChainInvariantHandler {
 
         uint256 reservationId = seed % createdReservations;
         ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
-        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+        if (reservation.member != member || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
 
         vm.warp(reservation.startTime);
+        vm.prank(member);
         ledger.checkIn(reservationId);
     }
 
@@ -72,8 +83,9 @@ contract ParkChainInvariantHandler {
 
         uint256 reservationId = seed % createdReservations;
         ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
-        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.CheckedIn) return;
+        if (reservation.member != member || reservation.status != ParkingLedger.ReservationStatus.CheckedIn) return;
 
+        vm.prank(member);
         ledger.checkOut(reservationId);
     }
 
@@ -82,7 +94,7 @@ contract ParkChainInvariantHandler {
 
         uint256 reservationId = seed % createdReservations;
         ParkingLedger.Reservation memory reservation = ledger.getReservation(reservationId);
-        if (reservation.member != address(this) || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
+        if (reservation.member != member || reservation.status != ParkingLedger.ReservationStatus.Reserved) return;
 
         vm.warp(reservation.startTime);
         vm.prank(ledgerOwner);
@@ -127,20 +139,33 @@ contract ParkChainInvariantTest {
         treasury = OperatorTreasury(
             payable(vm.deployCode("src/OperatorTreasury.sol:OperatorTreasury", abi.encode(IOperatorRegistry(address(registry)), 0.001 ether)))
         );
-        ledger = ParkingLedger(vm.deployCode("src/ParkingLedger.sol:ParkingLedger"));
+        ledger = ParkingLedger(
+            vm.deployCode(
+                "src/ParkingLedger.sol:ParkingLedger",
+                abi.encode(
+                    IParkingMembershipManager(address(membership)),
+                    IParkingOperatorRegistry(address(registry)),
+                    IParkingParkCredit(address(credit)),
+                    IParkingOperatorTreasury(address(treasury))
+                )
+            )
+        );
 
         credit.setMinter(address(membership), true);
-        credit.setBurner(address(this), true);
+        credit.setBurner(address(ledger), true);
 
         membership.setTier(URBAN, "Urban", 100, 0.01 ether, 20, true);
         ledger.setGracePeriod(15);
-        treasury.setAllocator(address(this));
+        treasury.setAllocator(address(ledger));
 
         bytes32[] memory categories = new bytes32[](1);
         categories[0] = STANDARD;
         registry.registerOperator(OPERATOR_ID, operatorWallet, "Central Garage", categories);
 
-        handler = new ParkChainInvariantHandler(ledger, treasury, address(this), OPERATOR_ID);
+        vm.prank(member);
+        membership.purchaseMembership{value: 0.01 ether}(URBAN);
+
+        handler = new ParkChainInvariantHandler(ledger, treasury, address(this), member, OPERATOR_ID);
         treasury.setAllocator(address(handler));
     }
 
@@ -155,11 +180,11 @@ contract ParkChainInvariantTest {
             assert(reservation.duration > 0);
         }
 
-        uint256[] memory reservations = ledger.getActiveReservation(address(handler));
+        uint256[] memory reservations = ledger.getActiveReservation(member);
 
         for (uint256 i = 0; i < reservations.length; i++) {
             ParkingLedger.Reservation memory reservation = ledger.getReservation(reservations[i]);
-            assert(reservation.member == address(handler));
+            assert(reservation.member == member);
         }
     }
 
