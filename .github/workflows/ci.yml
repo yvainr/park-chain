@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -43,11 +47,66 @@ jobs:
         run: |
           forge test --root contracts --match-contract ParkChainInvariantTest --fuzz-runs 100
 
+      - name: Download previous gas usage table
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const fs = require('fs');
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const workflow_id = 'ci.yml';
+            const branch = context.payload.pull_request?.base?.ref ?? context.ref.replace('refs/heads/', '');
+
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id,
+              branch,
+              status: 'success',
+              per_page: 10,
+            });
+
+            const previousRun = runs.workflow_runs.find((run) => run.id !== context.runId);
+            if (!previousRun) {
+              core.info(`No previous successful CI run found on ${branch}.`);
+              return;
+            }
+
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner,
+              repo,
+              run_id: previousRun.id,
+            });
+
+            const artifact = artifacts.artifacts.find((item) => item.name === 'gas-usage-table');
+            if (!artifact) {
+              core.info(`Previous CI run ${previousRun.id} has no gas-usage-table artifact.`);
+              return;
+            }
+
+            const response = await github.rest.actions.downloadArtifact({
+              owner,
+              repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
+            });
+
+            fs.writeFileSync('previous-gas-usage-table.zip', Buffer.from(response.data));
+            core.info(`Downloaded gas-usage-table artifact from run ${previousRun.id}.`);
+
+      - name: Extract previous gas usage table
+        run: |
+          if [ -f previous-gas-usage-table.zip ]; then
+            unzip -p previous-gas-usage-table.zip gas-usage-table.md > previous-gas-usage-table.md || true
+          fi
+
       - name: Generate gas usage table
         id: gas_usage_table
         run: |
           forge test --root contracts --match-contract GasUsageTableTest -vvvv | tee gas-usage-trace.txt
-          bash scripts/generate-gas-table.sh gas-usage-trace.txt gas-usage-table.md
+          bash scripts/generate-gas-table.sh gas-usage-trace.txt gas-usage-table.md 2000 1 previous-gas-usage-table.md
           cat gas-usage-table.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gas usage table

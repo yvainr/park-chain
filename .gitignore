@@ -23,3 +23,5 @@ package-lock.json
 # Generated CI reports
 gas-usage-table.md
 gas-usage-trace.txt
+previous-gas-usage-table.md
+previous-gas-usage-table.zip
