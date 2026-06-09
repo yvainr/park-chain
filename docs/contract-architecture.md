@@ -11,7 +11,7 @@ ParkChain is split into focused contracts so membership policy, operator setup, 
 Current integrations:
 
 - `MembershipManager` must be granted the minter role so purchases and renewals can mint monthly credits.
-- Future `ParkingLedger` can be granted burner rights or use another authorized settlement path when reservation charges are implemented.
+- `ParkingLedger` must be granted the burner role so booking, overstay, and no-show charges can burn member credits.
 
 ### MembershipManager
 
@@ -47,6 +47,29 @@ Responsibilities:
 - Operator wallets set their own category prices and no-show fee.
 - Read methods expose whitelist, category support, price, fee, and wallet information for `ParkingLedger` and the frontend.
 
+The current category catalog is `standard`, `disabled`, `ev-charging`, `motorbike`, `family`, and `women`, each represented on-chain as `keccak256` hashes.
+
+### ParkingLedger
+
+`ParkingLedger` is the reservation lifecycle and settlement contract.
+
+Responsibilities:
+
+- Reads `MembershipManager` to verify active membership and monthly hour caps.
+- Reads `OperatorRegistry` to verify whitelist status, supported categories, prices, and no-show fee.
+- Prevents overlapping active reservations for the same member, operator, and category.
+- Tracks used hours by category and by operator for a simple `timestamp / 30 days` month key.
+- Charges ParkCredits on check-in, overstay, and no-show.
+- Allocates operator earnings through `OperatorTreasury`.
+
+Lifecycle:
+
+1. Reserve a slot after membership, operator, category, overlap, and cap validation.
+2. Check in at or after reservation start and charge reserved-duration credits.
+3. Check out and charge rounded-up overstay hours only beyond the grace period.
+4. Cancel before start for free and release reserved monthly usage.
+5. Cancel after start or mark a missed reservation as no-show, charge the no-show fee, and release reserved monthly usage.
+
 ### OperatorTreasury
 
 `OperatorTreasury` accumulates operator earnings in ParkCredits and pays operators in ETH at the configured exchange rate.
@@ -58,28 +81,7 @@ Responsibilities:
 - Allocator records operator earnings.
 - Registered operator wallet withdraws accumulated earnings.
 
-Future `ParkingLedger` should become the allocator after deployment.
-
-## Planned Contract
-
-### ParkingLedger
-
-`ParkingLedger` is still a stub. It should become the reservation lifecycle contract.
-
-Planned dependencies:
-
-- Reads `MembershipManager` to verify active membership and monthly hour caps.
-- Reads `OperatorRegistry` to verify whitelist status, supported categories, prices, no-show fee, and operator wallet.
-- Charges ParkCredits on check-in, overstay, and no-show.
-- Allocates operator earnings through `OperatorTreasury`.
-
-Planned lifecycle:
-
-1. Reserve a slot after membership, operator, category, overlap, and cap validation.
-2. Check in at or after reservation start.
-3. Charge reserved duration.
-4. Check out and charge overstay only beyond the grace period.
-5. Mark missed reservations as no-shows after the start time.
+`ParkingLedger` should become the allocator after deployment.
 
 ## Deployment Order
 
@@ -89,4 +91,7 @@ Planned lifecycle:
 4. Configure membership tiers.
 5. Deploy `OperatorRegistry`.
 6. Deploy `OperatorTreasury` with the registry address.
-7. When implemented, deploy `ParkingLedger` and grant it the required settlement permissions.
+7. Deploy `ParkingLedger` with the membership, registry, credit, and treasury addresses.
+8. Grant `ParkingLedger` the ParkCredit burner role.
+9. Set `ParkingLedger` as the treasury allocator.
+10. Configure the booking grace period.

@@ -2,6 +2,13 @@
 pragma solidity ^0.8.24;
 
 contract OperatorRegistry {
+    bytes32 public constant STANDARD_CATEGORY = keccak256("standard");
+    bytes32 public constant DISABLED_CATEGORY = keccak256("disabled");
+    bytes32 public constant EV_CHARGING_CATEGORY = keccak256("ev-charging");
+    bytes32 public constant MOTORBIKE_CATEGORY = keccak256("motorbike");
+    bytes32 public constant FAMILY_SLOT_CATEGORY = keccak256("family");
+    bytes32 public constant WOMEN_SLOT_CATEGORY = keccak256("women");
+
     struct Operator {
         address wallet;
         string name;

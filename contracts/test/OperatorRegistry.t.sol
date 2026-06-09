@@ -17,21 +17,27 @@ contract OperatorRegistryTest {
     address private stranger = address(0x2002);
     bytes32 private constant STANDARD = keccak256("standard");
     bytes32 private constant EV_CHARGING = keccak256("ev-charging");
+    bytes32 private constant FAMILY_SLOT = keccak256("family");
+    bytes32 private constant WOMEN_SLOT = keccak256("women");
 
     function setUp() public {
         registry = new OperatorRegistry();
     }
 
     function testAdminCanRegisterAndRemoveOperator() public {
-        bytes32[] memory categories = new bytes32[](2);
+        bytes32[] memory categories = new bytes32[](4);
         categories[0] = STANDARD;
         categories[1] = EV_CHARGING;
+        categories[2] = FAMILY_SLOT;
+        categories[3] = WOMEN_SLOT;
 
         registry.registerOperator(1, operatorWallet, "Central Garage", categories);
 
         require(registry.isWhitelisted(1), "operator should be whitelisted");
         require(registry.supportsCategory(1, STANDARD), "standard should be supported");
         require(registry.supportsCategory(1, EV_CHARGING), "ev should be supported");
+        require(registry.supportsCategory(1, FAMILY_SLOT), "family slot should be supported");
+        require(registry.supportsCategory(1, WOMEN_SLOT), "women slot should be supported");
         require(registry.getOperatorWallet(1) == operatorWallet, "wallet mismatch");
 
         registry.removeOperator(1);
@@ -133,5 +139,27 @@ contract OperatorRegistryTest {
 
         registry.setSupportedCategory(1, STANDARD, false);
         require(!registry.supportsCategory(1, STANDARD), "standard should be disabled");
+    }
+
+    function testFamilyAndWomenSlotCategoriesCanBePriced() public {
+        require(registry.FAMILY_SLOT_CATEGORY() == FAMILY_SLOT, "family constant mismatch");
+        require(registry.WOMEN_SLOT_CATEGORY() == WOMEN_SLOT, "women constant mismatch");
+
+        bytes32[] memory categories = new bytes32[](2);
+        categories[0] = FAMILY_SLOT;
+        categories[1] = WOMEN_SLOT;
+
+        registry.registerOperator(1, operatorWallet, "Central Garage", categories);
+
+        vm.prank(operatorWallet);
+        registry.setPricePerHour(1, FAMILY_SLOT, 12);
+
+        vm.prank(operatorWallet);
+        registry.setPricePerHour(1, WOMEN_SLOT, 9);
+
+        require(registry.supportsCategory(1, FAMILY_SLOT), "family slot should be supported");
+        require(registry.supportsCategory(1, WOMEN_SLOT), "women slot should be supported");
+        require(registry.getPricePerHour(1, FAMILY_SLOT) == 12, "family slot price mismatch");
+        require(registry.getPricePerHour(1, WOMEN_SLOT) == 9, "women slot price mismatch");
     }
 }
