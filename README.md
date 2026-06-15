@@ -41,6 +41,7 @@ The Hardhat deployment script deploys:
 - `OperatorRegistry`
 - `OperatorTreasury`
 - `ParkingLedger`
+- `ParkChainRouter`
 
 It also grants `MembershipManager` the ParkCredit minter role and configures the default tiers:
 
@@ -49,6 +50,7 @@ It also grants `MembershipManager` the ParkCredit minter role and configures the
 - Unlimited: 400 credits, 0.03 ETH, 120 hours/month
 
 The script grants `ParkingLedger` the ParkCredit burner role, sets it as the treasury allocator, and configures a default 15-minute grace period.
+It also deploys or reuses `ParkChainRouter` and writes the latest five contract addresses into the router.
 
 Run a local chain and deploy:
 
@@ -57,7 +59,19 @@ npm run node:contracts
 npm run deploy:contracts:local
 ```
 
-Paste the printed contract addresses into the frontend.
+Copy the printed router address into `frontend/.env`:
+
+```bash
+VITE_PARKCHAIN_ROUTER_ADDRESS=0x...
+```
+
+On future redeploys, keep the same router address and update the stored contract addresses:
+
+```bash
+ROUTER_ADDRESS=0x... npm run deploy:contracts:local
+```
+
+Restart or refresh the frontend after redeploying so it resolves the latest addresses from the router.
 
 Supported slot category keys are hashed as `bytes32`: `standard`, `disabled`, `ev-charging`, `motorbike`, `family`, and `women`.
 
@@ -76,6 +90,8 @@ Start it with:
 ```bash
 npm run frontend:dev
 ```
+
+The frontend reads only `VITE_PARKCHAIN_ROUTER_ADDRESS` and resolves `ParkCredit`, `MembershipManager`, `OperatorRegistry`, `OperatorTreasury`, and `ParkingLedger` from-chain on startup.
 
 ## CI
 

@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
-import { type Hex, keccak256, toBytes } from "viem";
+import { useEffect, useMemo, useState } from "react";
+import { type Hex, keccak256, toBytes, zeroAddress } from "viem";
 import {
   membershipManagerAbi,
   operatorRegistryAbi,
   operatorTreasuryAbi,
+  parkChainRouterAbi,
   parkCreditAbi,
   parkingLedgerAbi,
 } from "./abi/contracts";
@@ -11,6 +12,14 @@ import { connectWallet, readContract, toAddress, toUint, writeContract } from ".
 
 const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike", "family", "women"] as const;
 const PARK_CREDIT_ID = 1n;
+const ROUTER_ADDRESS = String(import.meta.env.VITE_PARKCHAIN_ROUTER_ADDRESS ?? "").trim();
+const ROUTER_CONTRACTS = [
+  { label: "ParkCredit", stateKey: "credit", key: keccak256(toBytes("ParkCredit")) },
+  { label: "MembershipManager", stateKey: "membership", key: keccak256(toBytes("MembershipManager")) },
+  { label: "OperatorRegistry", stateKey: "registry", key: keccak256(toBytes("OperatorRegistry")) },
+  { label: "OperatorTreasury", stateKey: "treasury", key: keccak256(toBytes("OperatorTreasury")) },
+  { label: "ParkingLedger", stateKey: "ledger", key: keccak256(toBytes("ParkingLedger")) },
+] as const;
 
 type CategoryName = (typeof CATEGORY_NAMES)[number];
 type Tab = "admin" | "member" | "operator" | "reads";
@@ -132,12 +141,77 @@ export function App() {
     "family": false,
     "women": false,
   });
-  const [output, setOutput] = useState("Connect a wallet and paste contract addresses to begin.");
+  const [output, setOutput] = useState("Resolving contract addresses from ParkChainRouter.");
 
   const categoryHash = useMemo(
     () => categoryToBytes32(categoryName, customCategory),
     [categoryName, customCategory],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveContractAddresses() {
+      if (!ROUTER_ADDRESS) {
+        setOutput("Router address missing\nSet VITE_PARKCHAIN_ROUTER_ADDRESS=0x... in frontend/.env and restart the frontend.");
+        return;
+      }
+
+      try {
+        const routerAddress = toAddress(ROUTER_ADDRESS, "ParkChainRouter address");
+        const resolved = await Promise.all(
+          ROUTER_CONTRACTS.map(async (contract) => {
+            const address = String(
+              await readContract({
+                address: routerAddress,
+                abi: parkChainRouterAbi,
+                functionName: "getContract",
+                args: [contract.key],
+              }),
+            );
+
+            return { ...contract, address: toAddress(address, `${contract.label} address`) };
+          }),
+        );
+        const unset = resolved.filter((contract) => contract.address.toLowerCase() === zeroAddress);
+
+        if (cancelled) return;
+
+        for (const contract of resolved) {
+          if (contract.stateKey === "credit") setCreditAddress(contract.address);
+          if (contract.stateKey === "membership") setMembershipAddress(contract.address);
+          if (contract.stateKey === "registry") setRegistryAddress(contract.address);
+          if (contract.stateKey === "treasury") setTreasuryAddress(contract.address);
+          if (contract.stateKey === "ledger") setLedgerAddress(contract.address);
+        }
+
+        if (unset.length > 0) {
+          setOutput(
+            `Router key unset\n${unset
+              .map((contract) => `${contract.label} resolved to ${zeroAddress}`)
+              .join("\n")}\nRedeploy with ROUTER_ADDRESS=${routerAddress} npm run deploy:contracts:local`,
+          );
+          return;
+        }
+
+        setOutput(
+          `Resolved contract addresses from router ${routerAddress}\n${resolved
+            .map((contract) => `${contract.label}: ${contract.address}`)
+            .join("\n")}`,
+        );
+      } catch (error) {
+        if (!cancelled) {
+          setOutput(`Router address resolution failed\n${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
+    resolveContractAddresses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function run(label: string, action: () => Promise<unknown>) {
     try {
@@ -160,24 +234,32 @@ export function App() {
     return toAddress(account, "Connected account");
   }
 
+  function requireResolvedAddress(value: string, label: string) {
+    const address = toAddress(value, label);
+    if (address.toLowerCase() === zeroAddress) {
+      throw new Error(`${label} is not resolved in ParkChainRouter`);
+    }
+    return address;
+  }
+
   function requireCredit() {
-    return toAddress(creditAddress, "ParkCredit address");
+    return requireResolvedAddress(creditAddress, "ParkCredit address");
   }
 
   function requireMembership() {
-    return toAddress(membershipAddress, "MembershipManager address");
+    return requireResolvedAddress(membershipAddress, "MembershipManager address");
   }
 
   function requireRegistry() {
-    return toAddress(registryAddress, "OperatorRegistry address");
+    return requireResolvedAddress(registryAddress, "OperatorRegistry address");
   }
 
   function requireTreasury() {
-    return toAddress(treasuryAddress, "OperatorTreasury address");
+    return requireResolvedAddress(treasuryAddress, "OperatorTreasury address");
   }
 
   function requireLedger() {
-    return toAddress(ledgerAddress, "ParkingLedger address");
+    return requireResolvedAddress(ledgerAddress, "ParkingLedger address");
   }
 
   function memberReadAddress() {
@@ -216,11 +298,12 @@ export function App() {
 
       <div className="status-strip">
         <Badge variant={account ? "success" : "secondary"}>{account ? "Wallet connected" : "Wallet disconnected"}</Badge>
-        <span>{creditAddress ? "ParkCredit address set" : "ParkCredit address missing"}</span>
-        <span>{membershipAddress ? "Membership address set" : "Membership address missing"}</span>
-        <span>{registryAddress ? "Registry address set" : "Registry address missing"}</span>
-        <span>{treasuryAddress ? "Treasury address set" : "Treasury address missing"}</span>
-        <span>{ledgerAddress ? "Ledger address set" : "Ledger address missing"}</span>
+        <span>{ROUTER_ADDRESS ? "Router configured" : "Router missing"}</span>
+        <span>{creditAddress ? "ParkCredit resolved" : "ParkCredit missing"}</span>
+        <span>{membershipAddress ? "Membership resolved" : "Membership missing"}</span>
+        <span>{registryAddress ? "Registry resolved" : "Registry missing"}</span>
+        <span>{treasuryAddress ? "Treasury resolved" : "Treasury missing"}</span>
+        <span>{ledgerAddress ? "Ledger resolved" : "Ledger missing"}</span>
       </div>
 
       <div className="layout">
@@ -228,28 +311,32 @@ export function App() {
           <Card>
             <CardHeader>
               <CardTitle>Contracts</CardTitle>
-              <CardDescription>Paste deployed addresses from your local chain.</CardDescription>
+              <CardDescription>Resolved from VITE_PARKCHAIN_ROUTER_ADDRESS.</CardDescription>
             </CardHeader>
             <CardContent className="grid two">
               <Label>
+                <span>ParkChainRouter address</span>
+                <Input value={ROUTER_ADDRESS} readOnly />
+              </Label>
+              <Label>
                 <span>ParkCredit address</span>
-                <Input value={creditAddress} onChange={(event: any) => setCreditAddress(event.target.value)} />
+                <Input value={creditAddress} readOnly />
               </Label>
               <Label>
                 <span>MembershipManager address</span>
-                <Input value={membershipAddress} onChange={(event: any) => setMembershipAddress(event.target.value)} />
+                <Input value={membershipAddress} readOnly />
               </Label>
               <Label>
                 <span>OperatorRegistry address</span>
-                <Input value={registryAddress} onChange={(event: any) => setRegistryAddress(event.target.value)} />
+                <Input value={registryAddress} readOnly />
               </Label>
               <Label>
                 <span>OperatorTreasury address</span>
-                <Input value={treasuryAddress} onChange={(event: any) => setTreasuryAddress(event.target.value)} />
+                <Input value={treasuryAddress} readOnly />
               </Label>
               <Label>
                 <span>ParkingLedger address</span>
-                <Input value={ledgerAddress} onChange={(event: any) => setLedgerAddress(event.target.value)} />
+                <Input value={ledgerAddress} readOnly />
               </Label>
             </CardContent>
           </Card>
