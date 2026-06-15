@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build:contracts": "hardhat compile --config hardhat.config.cjs",
-    "test:contracts": "hardhat test --config hardhat.config.cjs",
-    "node:contracts": "hardhat node --config hardhat.config.cjs",
+    "build:contracts": "hardhat compile",
+    "test:contracts": "hardhat test",
+    "gas:contracts": "hardhat run --no-compile scripts/generate-hardhat-gas-table.ts",
+    "node:contracts": "hardhat node",
     "deploy:contracts:local": "hardhat run scripts/deploy-hardhat.ts --network localhost",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build"

@@ -38,15 +38,14 @@ parkchain/
 │   │   ├── OperatorRegistry.sol
 │   │   ├── ParkingLedger.sol
 │   │   └── OperatorTreasury.sol
-│   ├── test/
-│   │   ├── ParkCredit.t.sol
-│   │   ├── MembershipManager.t.sol
-│   │   ├── OperatorRegistry.t.sol
-│   │   ├── ParkingLedger.t.sol
-│   │   └── OperatorTreasury.t.sol
+│   ├── hardhat-test/
+│   │   ├── park-credit.ts
+│   │   ├── membership-manager.ts
+│   │   ├── operator-registry.ts
+│   │   ├── parking-ledger.ts
+│   │   └── operator-treasury.ts
 │   ├── script/
 │   │   └── Deploy.s.sol
-│   └── foundry.toml
 ├── frontend/
 │   ├── src/
 │   │   ├── abi/

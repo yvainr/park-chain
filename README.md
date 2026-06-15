@@ -1,6 +1,6 @@
 # ParkChain
 
-ParkChain is a mono-repository for the Urban Parking and EV Charging Network assignment. It contains Solidity contracts, Foundry tests, frontend code, and project documentation.
+ParkChain is a mono-repository for the Urban Parking and EV Charging Network assignment. It contains Solidity contracts, Hardhat tests, frontend code, and project documentation.
 
 ## Install Dependencies
 
@@ -12,9 +12,9 @@ npm install
 
 ## Run Contract Tests
 
-The Foundry tests live in `contracts/test` and cover:
+The Hardhat tests live in `contracts/hardhat-test` and cover:
 
-- `ParkCredit`: ownership, minter/burner role management, role guards, and inherited ERC-1155 behavior through a test harness.
+- `ParkCredit`: ownership, minter/burner role management, role guards, and inherited ERC-1155 behavior.
 - `MembershipManager`: tier administration, membership purchase and renewal, expiry behavior, ParkCredit mint integration, and future ParkingLedger read integration.
 - `OperatorRegistry`: admin registration/removal, category support, operator-only price updates, no-show fees, and revert cases.
 - `ParkingLedger`: integrated reservation validation, overlap prevention, monthly caps, check-in charging, overstay settlement, no-show settlement, and treasury allocation.
@@ -23,7 +23,13 @@ The Foundry tests live in `contracts/test` and cover:
 Run the full smart contract suite from the repository root:
 
 ```bash
-forge test --root contracts
+npm run test:contracts
+```
+
+Generate the gas usage table with:
+
+```bash
+npm run gas:contracts
 ```
 
 ## Local Deployment
@@ -73,4 +79,4 @@ npm run frontend:dev
 
 ## CI
 
-GitHub Actions installs Node dependencies, installs Foundry, and runs `forge test --root contracts` on every push and pull request.
+GitHub Actions installs Node dependencies, builds contracts, runs the Hardhat contract tests, generates the gas usage table, and builds the frontend on every push and pull request.

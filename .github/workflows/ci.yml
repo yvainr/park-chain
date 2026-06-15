@@ -17,35 +17,20 @@ jobs:
       - name: Check repository scaffold
         run: |
           test -d contracts/src
-          test -d contracts/test
+          test -d contracts/hardhat-test
           test -d frontend/src
           test -d docs
 
       - name: Install Node dependencies
         run: npm install
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+      - name: Build contracts
+        id: hardhat_build
+        run: npm run build:contracts
 
-      - name: Update Foundry to latest
-        run: |
-          foundryup || true
-          forge --version
-
-      - name: Run Foundry unit tests
-        id: foundry_unit_tests
-        run: |
-          forge test --root contracts
-
-      - name: Run Foundry fuzz tests (quick)
-        id: foundry_fuzz_tests
-        run: |
-          forge test --root contracts --match-contract FuzzParkChainTest --fuzz-runs 50
-
-      - name: Run Foundry invariants
-        id: foundry_invariants
-        run: |
-          forge test --root contracts --match-contract ParkChainInvariantTest --fuzz-runs 100
+      - name: Run Hardhat contract tests
+        id: hardhat_tests
+        run: npm run test:contracts
 
       - name: Download previous gas usage table
         uses: actions/github-script@v7
@@ -105,17 +90,18 @@ jobs:
       - name: Generate gas usage table
         id: gas_usage_table
         run: |
-          forge test --root contracts --match-contract GasUsageTableTest -vvvv | tee gas-usage-trace.txt
-          bash scripts/generate-gas-table.sh gas-usage-trace.txt gas-usage-table.md 2000 1 previous-gas-usage-table.md
+          npm run gas:contracts
           cat gas-usage-table.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload gas usage table
         uses: actions/upload-artifact@v4
         with:
           name: gas-usage-table
-          path: |
-            gas-usage-table.md
-            gas-usage-trace.txt
+          path: gas-usage-table.md
+
+      - name: Build frontend
+        id: frontend_build
+        run: npm run frontend:build
 
       - name: Generate test summary
         if: always()
@@ -125,8 +111,8 @@ jobs:
             echo
             echo "| Suite | Command | Result |"
             echo "|---|---|---|"
-            echo "| Foundry unit tests | \`forge test --root contracts\` | \`${{ steps.foundry_unit_tests.outcome }}\` |"
-            echo "| Foundry fuzz tests | \`forge test --root contracts --match-contract FuzzParkChainTest --fuzz-runs 50\` | \`${{ steps.foundry_fuzz_tests.outcome }}\` |"
-            echo "| Foundry invariants | \`forge test --root contracts --match-contract ParkChainInvariantTest --fuzz-runs 100\` | \`${{ steps.foundry_invariants.outcome }}\` |"
-            echo "| Gas usage table | \`forge test --root contracts --match-contract GasUsageTableTest -vvvv\` | \`${{ steps.gas_usage_table.outcome }}\` |"
+            echo "| Contract build | \`npm run build:contracts\` | \`${{ steps.hardhat_build.outcome }}\` |"
+            echo "| Hardhat contract tests | \`npm run test:contracts\` | \`${{ steps.hardhat_tests.outcome }}\` |"
+            echo "| Gas usage table | \`npm run gas:contracts\` | \`${{ steps.gas_usage_table.outcome }}\` |"
+            echo "| Frontend build | \`npm run frontend:build\` | \`${{ steps.frontend_build.outcome }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"

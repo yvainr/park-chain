@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { network } from "hardhat";
-import { keccak256, stringToBytes } from "viem";
-
-const { viem, networkHelpers } = await network.create();
-
-const STANDARD = keccak256(stringToBytes("standard"));
-const EV_CHARGING = keccak256(stringToBytes("ev-charging"));
-const FAMILY_SLOT = keccak256(stringToBytes("family"));
-const WOMEN_SLOT = keccak256(stringToBytes("women"));
+import {
+  EV_CHARGING,
+  FAMILY_SLOT,
+  STANDARD,
+  WOMEN_SLOT,
+  networkHelpers,
+  viem,
+} from "./helpers.js";
 
 async function deployRegistryFixture() {
   const [, operator, stranger] = await viem.getWalletClients();
@@ -58,7 +57,27 @@ describe("OperatorRegistry", function () {
     );
   });
 
-  it("only lets the operator wallet set price and no-show fee", async function () {
+  it("rejects invalid registration and unknown operator admin actions", async function () {
+    const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperator([1n, "0x0000000000000000000000000000000000000000", "Central Garage", [STANDARD]]),
+      "OperatorRegistry: zero wallet",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperator([1n, operator.account.address, "", [STANDARD]]),
+      "OperatorRegistry: empty name",
+    );
+
+    await viem.assertions.revertWith(registry.write.removeOperator([404n]), "OperatorRegistry: unknown operator");
+    await viem.assertions.revertWith(
+      registry.write.setSupportedCategory([404n, STANDARD, true]),
+      "OperatorRegistry: unknown operator",
+    );
+  });
+
+  it("only lets the operator wallet set price, no-show fee, and capacity", async function () {
     const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
 
     await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
@@ -73,11 +92,41 @@ describe("OperatorRegistry", function () {
       "OperatorRegistry: not operator wallet",
     );
 
+    await viem.assertions.revertWith(
+      registry.write.setCategoryCapacity([1n, STANDARD, 10n], { account: stranger.account }),
+      "OperatorRegistry: not operator",
+    );
+
     await registry.write.setPricePerHour([1n, STANDARD, 10n], { account: operator.account });
     await registry.write.setNoShowFee([1n, 3n], { account: operator.account });
+    await registry.write.setCategoryCapacity([1n, STANDARD, 10n], { account: operator.account });
 
     assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 10n);
     assert.equal(await registry.read.getNoShowFee([1n]), 3n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 10n);
+  });
+
+  it("rejects pricing unsupported categories and removed operators", async function () {
+    const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
+
+    await viem.assertions.revertWith(
+      registry.write.setPricePerHour([1n, EV_CHARGING, 10n], { account: operator.account }),
+      "OperatorRegistry: unsupported category",
+    );
+
+    await registry.write.removeOperator([1n]);
+
+    await viem.assertions.revertWith(
+      registry.write.setPricePerHour([1n, STANDARD, 10n], { account: operator.account }),
+      "OperatorRegistry: not whitelisted",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.setNoShowFee([1n, 3n], { account: operator.account }),
+      "OperatorRegistry: not whitelisted",
+    );
   });
 
   it("lets the admin update category support", async function () {
