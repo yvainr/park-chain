@@ -63,7 +63,7 @@ npm run test:contracts
 Expected Hardhat test result:
 
 ```text
-16 passing
+all contract tests passing
 ```
 
 The Hardhat tests are TypeScript `node:test` tests using viem. They live in:
@@ -72,16 +72,16 @@ The Hardhat tests are TypeScript `node:test` tests using viem. They live in:
 contracts/hardhat-test/
 ```
 
-The CI contract suite uses Foundry. Run it from the repository root with:
+The CI contract suite uses Hardhat. Run it from the repository root with:
 
 ```bash
-forge test --root contracts
+npm run test:contracts
 ```
 
-Expected Foundry result:
+Generate the gas table with:
 
-```text
-54 passed
+```bash
+npm run gas:contracts
 ```
 
 ## 4. Start a Local Hardhat Blockchain
