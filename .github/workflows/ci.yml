@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: read
   actions: read
@@ -21,8 +24,11 @@ jobs:
           test -d frontend/src
           test -d docs
 
-      - name: Install Node dependencies
-        run: npm install
+      - name: Install root Node dependencies
+        run: npm ci
+
+      - name: Install frontend Node dependencies
+        run: npm ci --prefix frontend
 
       - name: Build contracts
         id: hardhat_build
