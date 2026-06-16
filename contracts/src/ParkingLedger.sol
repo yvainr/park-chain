@@ -13,6 +13,7 @@ interface IParkingOperatorRegistry {
     function supportsCategory(uint256 operatorId, bytes32 category) external view returns (bool);
     function getPricePerHour(uint256 operatorId, bytes32 category) external view returns (uint256);
     function getNoShowFee(uint256 operatorId) external view returns (uint256);
+    function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns (uint256);
 }
 
 interface IParkingParkCredit {
@@ -115,6 +116,10 @@ contract ParkingLedger is Ownable {
         require(operatorRegistry.isWhitelisted(operatorID), "ParkingLedger: operator not whitelisted");
         require(operatorRegistry.supportsCategory(operatorID, category), "ParkingLedger: unsupported category");
         require(!_hasOverlap(msg.sender, operatorID, category, startTime, duration), "ParkingLedger: overlap");
+
+        uint256 occupied = _countOverlapReservations(operatorID, category, startTime, duration);
+        uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
+        require(capacity > occupied, "ParkingLedger: category slot-capacity full");
 
         uint256 monthKey = _monthKey(startTime);
         uint256 cap = membershipManager.getMemberMonthlyHourCap(msg.sender);
@@ -317,5 +322,35 @@ contract ParkingLedger is Ownable {
 
     function _monthKey(uint256 timestamp) private pure returns (uint256) {
         return timestamp / 30 days;
+    }
+
+    // The Parking Ledger should check that the number of cars parked at the same time doesn't exceed the parking lot limitation (e.g. 100 cars)
+    function _countOverlapReservations(
+        uint256 operatorID,
+        bytes32 category,
+        uint256 startTime,
+        uint256 duration
+    ) private view returns (uint256 count) {
+        uint256 endTime = startTime + (duration * 1 hours);
+
+        for (uint256 i = 0; i < nextReservationID; i++) {
+            Reservation storage existing = reservations[i];
+            
+            if (!_isActiveForOverlap(existing.status)) {
+                continue;
+            }
+
+            if (existing.operatorID != operatorID || existing.category != category) {
+                continue;
+            }
+
+            uint256 existingEndTime = existing.startTime + (existing.duration * 1 hours);
+            
+            bool overlap = startTime < existingEndTime && endTime > existing.startTime;
+            
+            if (overlap) {
+                count++;
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 # ParkChain
 
-ParkChain is a mono-repository for the Urban Parking and EV Charging Network assignment. It contains Solidity contracts, Foundry tests, frontend code, and project documentation.
+ParkChain is a mono-repository for the Urban Parking and EV Charging Network assignment. It contains Solidity contracts, Hardhat tests, frontend code, and project documentation.
 
 ## Install Dependencies
 
@@ -12,9 +12,9 @@ npm install
 
 ## Run Contract Tests
 
-The Foundry tests live in `contracts/test` and cover:
+The Hardhat tests live in `contracts/hardhat-test` and cover:
 
-- `ParkCredit`: ownership, minter/burner role management, role guards, and inherited ERC-1155 behavior through a test harness.
+- `ParkCredit`: ownership, minter/burner role management, role guards, and inherited ERC-1155 behavior.
 - `MembershipManager`: tier administration, membership purchase and renewal, expiry behavior, ParkCredit mint integration, and future ParkingLedger read integration.
 - `OperatorRegistry`: admin registration/removal, category support, operator-only price updates, no-show fees, and revert cases.
 - `ParkingLedger`: integrated reservation validation, overlap prevention, monthly caps, check-in charging, overstay settlement, no-show settlement, and treasury allocation.
@@ -23,7 +23,13 @@ The Foundry tests live in `contracts/test` and cover:
 Run the full smart contract suite from the repository root:
 
 ```bash
-forge test --root contracts
+npm run test:contracts
+```
+
+Generate the gas usage table with:
+
+```bash
+npm run gas:contracts
 ```
 
 ## Local Deployment
@@ -35,6 +41,7 @@ The Hardhat deployment script deploys:
 - `OperatorRegistry`
 - `OperatorTreasury`
 - `ParkingLedger`
+- `ParkChainRouter`
 
 It also grants `MembershipManager` the ParkCredit minter role and configures the default tiers:
 
@@ -43,6 +50,7 @@ It also grants `MembershipManager` the ParkCredit minter role and configures the
 - Unlimited: 400 credits, 0.03 ETH, 120 hours/month
 
 The script grants `ParkingLedger` the ParkCredit burner role, sets it as the treasury allocator, and configures a default 15-minute grace period.
+It also deploys or reuses `ParkChainRouter` and writes the latest five contract addresses into the router.
 
 Run a local chain and deploy:
 
@@ -51,7 +59,19 @@ npm run node:contracts
 npm run deploy:contracts:local
 ```
 
-Paste the printed contract addresses into the frontend.
+Copy the printed router address into `frontend/.env`:
+
+```bash
+VITE_PARKCHAIN_ROUTER_ADDRESS=0x...
+```
+
+On future redeploys, keep the same router address and update the stored contract addresses:
+
+```bash
+ROUTER_ADDRESS=0x... npm run deploy:contracts:local
+```
+
+Restart or refresh the frontend after redeploying so it resolves the latest addresses from the router.
 
 Supported slot category keys are hashed as `bytes32`: `standard`, `disabled`, `ev-charging`, `motorbike`, `family`, and `women`.
 
@@ -71,6 +91,8 @@ Start it with:
 npm run frontend:dev
 ```
 
+The frontend reads only `VITE_PARKCHAIN_ROUTER_ADDRESS` and resolves `ParkCredit`, `MembershipManager`, `OperatorRegistry`, `OperatorTreasury`, and `ParkingLedger` from-chain on startup.
+
 ## CI
 
-GitHub Actions installs Node dependencies, installs Foundry, and runs `forge test --root contracts` on every push and pull request.
+GitHub Actions installs Node dependencies, builds contracts, runs the Hardhat contract tests, generates the gas usage table, and builds the frontend on every push and pull request.

@@ -1,5 +1,5 @@
 import { network } from "hardhat";
-import { parseEther } from "viem";
+import { getAddress, parseEther, type Address } from "viem";
 
 const { viem, networkName } = await network.create();
 const client = await viem.getPublicClient();
@@ -42,6 +42,34 @@ console.log("Set ParkingLedger as treasury allocator");
 
 await ledger.write.setGracePeriodMinutes([15n]);
 console.log("Configured default 15-minute grace period");
+
+let router;
+if (process.env.ROUTER_ADDRESS) {
+  const routerAddress = getAddress(process.env.ROUTER_ADDRESS) as Address;
+  router = await viem.getContractAt("ParkChainRouter", routerAddress);
+  console.log("Reusing ParkChainRouter:", router.address);
+} else {
+  router = await viem.deployContract("ParkChainRouter");
+  console.log("ParkChainRouter:", router.address);
+}
+
+const routerKeys = [
+  await router.read.PARK_CREDIT(),
+  await router.read.MEMBERSHIP_MANAGER(),
+  await router.read.OPERATOR_REGISTRY(),
+  await router.read.OPERATOR_TREASURY(),
+  await router.read.PARKING_LEDGER(),
+];
+const routerAddresses = [credit.address, membership.address, registry.address, treasury.address, ledger.address];
+
+await router.write.setContracts([routerKeys, routerAddresses]);
+console.log("Updated ParkChainRouter contract addresses:");
+console.log("  ParkCredit:", await router.read.getContract([routerKeys[0]]));
+console.log("  MembershipManager:", await router.read.getContract([routerKeys[1]]));
+console.log("  OperatorRegistry:", await router.read.getContract([routerKeys[2]]));
+console.log("  OperatorTreasury:", await router.read.getContract([routerKeys[3]]));
+console.log("  ParkingLedger:", await router.read.getContract([routerKeys[4]]));
+console.log(`Future redeploys can reuse this router with ROUTER_ADDRESS=${router.address} npm run deploy:contracts:local`);
 
 const blockNumber = await client.getBlockNumber();
 console.log("Deployment complete at block:", blockNumber.toString());

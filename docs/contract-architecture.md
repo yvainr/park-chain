@@ -83,6 +83,14 @@ Responsibilities:
 
 `ParkingLedger` should become the allocator after deployment.
 
+### ParkChainRouter
+
+`ParkChainRouter` stores the latest deployed ParkChain contract addresses under stable `bytes32` keys. It is owned by the deployer by default and is used by the frontend as an address discovery layer.
+
+- First deployment creates the router and prints its address.
+- Future deployments can pass `ROUTER_ADDRESS=0x...` to reuse the same router.
+- The router points the frontend to the latest contract addresses, but it does not preserve or migrate contract state.
+
 ## Deployment Order
 
 1. Deploy `ParkCredit`.
@@ -95,3 +103,5 @@ Responsibilities:
 8. Grant `ParkingLedger` the ParkCredit burner role.
 9. Set `ParkingLedger` as the treasury allocator.
 10. Configure the booking grace period.
+11. Deploy or connect to `ParkChainRouter`.
+12. Store the current `ParkCredit`, `MembershipManager`, `OperatorRegistry`, `OperatorTreasury`, and `ParkingLedger` addresses in the router.
