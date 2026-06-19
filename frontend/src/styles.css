@@ -28,6 +28,104 @@ p {
   padding: 28px 0 44px;
 }
 
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-panel {
+  width: min(960px, 100%);
+  display: grid;
+  gap: 22px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 28px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.login-copy {
+  display: grid;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.login-copy h1 {
+  color: #020617;
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+.login-copy p {
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.login-actions,
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.role-card {
+  min-height: 168px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  padding: 18px;
+  text-align: left;
+  color: #0f172a;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.role-card:hover {
+  border-color: #0f172a;
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.role-card span {
+  width: fit-content;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.role-card strong {
+  color: #020617;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.role-card small {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-output {
+  min-height: 120px;
+  max-height: 220px;
+}
+
 .hero {
   display: flex;
   align-items: flex-start;
@@ -84,9 +182,22 @@ p {
   align-items: stretch;
 }
 
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 16px;
+  align-items: start;
+}
+
 .stack {
   display: grid;
   gap: 16px;
+}
+
+.side-stack {
+  display: grid;
+  gap: 16px;
+  align-content: start;
 }
 
 .ui-card {
@@ -314,11 +425,13 @@ pre {
 }
 
 @media (max-width: 920px) {
-  .layout {
+  .layout,
+  .dashboard-grid {
     grid-template-columns: 1fr;
   }
 
-  .three {
+  .three,
+  .role-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -335,8 +448,16 @@ pre {
     display: grid;
   }
 
+  .login-panel {
+    padding: 20px;
+  }
+
   .hero h1 {
     font-size: 26px;
+  }
+
+  .login-copy h1 {
+    font-size: 28px;
   }
 
   .two {
