@@ -7,7 +7,7 @@ export function LoginPage({ app }: any) {
         <div className="login-copy">
           <Badge>ParkChain</Badge>
           <h1>Sign in to your workspace</h1>
-          <p>Choose the interface that matches your role. Wallet connection is required before sending transactions.</p>
+          <p>Connect your wallet, then choose the interface authorized for that on-chain account.</p>
         </div>
 
         <div className="login-actions">
@@ -19,23 +19,44 @@ export function LoginPage({ app }: any) {
           </Badge>
         </div>
 
-        <div className="role-grid">
-          <button className="role-card" onClick={() => app.loginAs("admin")}>
-            <span>Admin</span>
-            <strong>Configure platform</strong>
-            <small>Register operators, manage tiers, and set treasury parameters.</small>
-          </button>
-          <button className="role-card" onClick={() => app.loginAs("operator")}>
-            <span>Operator</span>
-            <strong>Manage garage earnings</strong>
-            <small>Set category prices, no-show fees, and withdraw accumulated earnings.</small>
-          </button>
-          <button className="role-card" onClick={() => app.loginAs("customer")}>
-            <span>Customer</span>
-            <strong>Reserve parking</strong>
-            <small>Buy memberships, reserve slots, check in, check out, and view usage.</small>
-          </button>
-        </div>
+        <button
+          className="role-card customer-login-card"
+          disabled={!app.account}
+          onClick={() => app.loginAs("customer")}
+        >
+          <span>Customer</span>
+          <strong>Find your next parking space</strong>
+          <small>Buy memberships, reserve parking or EV charging, check in, and track your monthly usage.</small>
+          <b>Open Customer Portal →</b>
+        </button>
+
+        {(app.canAccessAdmin || app.canAccessOperator) && (
+          <div className="privileged-login-section">
+            <p>Additional workspaces available for this wallet</p>
+            <div className="privileged-role-row">
+              {app.canAccessAdmin && (
+                <button className="role-card privileged-role-card" onClick={() => app.loginAs("admin")}>
+                  <span>Admin</span>
+                  <strong>Configure platform</strong>
+                  <small>Register operators, manage tiers, and set treasury parameters.</small>
+                </button>
+              )}
+              {app.canAccessOperator && (
+                <button className="role-card privileged-role-card" onClick={() => app.loginAs("operator")}>
+                  <span>Operator</span>
+                  <strong>Manage parking operations</strong>
+                  <small>Update prices, capacity, fees, and operator earnings.</small>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {app.walletAccessPending && (
+          <p className="wallet-access-status" role="status">
+            Checking for additional wallet permissions…
+          </p>
+        )}
 
         <pre className="login-output">{app.output}</pre>
       </section>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  DISABLED,
   EV_CHARGING,
   FAMILY_SLOT,
   HOUR,
@@ -34,6 +35,30 @@ describe("ParkingLedger", function () {
     assert.equal(reservation.status, 0);
     assert.equal(await ledger.read.getUsedHoursByCategory([member.account.address, FAMILY_SLOT, monthKey]), 2n);
     assert.equal(await ledger.read.getUsedHoursByOperator([member.account.address, OPERATOR_ID, monthKey]), 2n);
+  });
+
+  it("enforces zero, available, and full category capacity", async function () {
+    const { ledger, membership, registry, operator, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await registry.write.setSupportedCategory([OPERATOR_ID, DISABLED, true]);
+    await purchaseMembership(membership, member);
+    await purchaseMembership(membership, secondMember);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserve([OPERATOR_ID, DISABLED, startTime, 2n], { account: member.account }),
+      "ParkingLedger: category slot-capacity full",
+    );
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, DISABLED, 1n], { account: operator.account });
+    await reserve(ledger, member, OPERATOR_ID, DISABLED, startTime, 2n);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserve([OPERATOR_ID, DISABLED, startTime, 2n], { account: secondMember.account }),
+      "ParkingLedger: category slot-capacity full",
+    );
   });
 
   it("rejects inactive members, unsupported categories, removed operators, and expired memberships", async function () {

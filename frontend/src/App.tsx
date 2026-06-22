@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { type Hex, keccak256, toBytes, zeroAddress } from "viem";
-import { parkChainRouterAbi } from "./abi/contracts";
+import { type Address, type Hex, keccak256, parseAbiItem, toBytes, zeroAddress } from "viem";
+import { operatorRegistryAbi, parkChainRouterAbi } from "./abi/contracts";
 import { StatusStrip } from "./components/shared-panels";
 import { Badge, Button } from "./components/ui";
-import { connectWallet, readContract, toAddress, writeContract } from "./lib/wallet";
+import {
+  connectWallet,
+  getConnectedWallet,
+  publicClient,
+  readContract,
+  toAddress,
+  toUint,
+  watchWalletAccounts,
+  writeContract,
+} from "./lib/wallet";
 import { AdminPage } from "./pages/AdminPage";
 import { CustomerPage } from "./pages/CustomerPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -14,6 +23,9 @@ export const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike
 export const PARK_CREDIT_ID = 1n;
 
 const ROUTER_ADDRESS = String(import.meta.env.VITE_PARKCHAIN_ROUTER_ADDRESS ?? "").trim();
+const OPERATOR_REGISTERED_EVENT = parseAbiItem(
+  "event OperatorRegistered(uint256 indexed operatorId, address indexed wallet, string name)",
+);
 const ROUTER_CONTRACTS = [
   { label: "ParkCredit", stateKey: "credit", key: keccak256(toBytes("ParkCredit")) },
   { label: "MembershipManager", stateKey: "membership", key: keccak256(toBytes("MembershipManager")) },
@@ -65,9 +77,123 @@ function roleTitle(role: UserRole) {
   return "Customer Portal";
 }
 
+async function resolveOperatorIdForWallet(registry: Address, wallet: Address) {
+  const candidates: bigint[] = [];
+
+  try {
+    candidates.push(
+      BigInt(
+        String(
+          await readContract({
+            address: registry,
+            abi: operatorRegistryAbi,
+            functionName: "operatorIdByWallet",
+            args: [wallet],
+          }),
+        ),
+      ),
+    );
+  } catch {
+    // Older deployments do not expose the reverse wallet lookup.
+  }
+
+  try {
+    const registrations = await publicClient.getLogs({
+      address: registry,
+      event: OPERATOR_REGISTERED_EVENT,
+      args: { wallet },
+      fromBlock: 0n,
+      toBlock: "latest",
+      strict: true,
+    });
+
+    for (let index = registrations.length - 1; index >= 0; index -= 1) {
+      const operatorId = registrations[index].args.operatorId;
+      if (typeof operatorId === "bigint") candidates.push(operatorId);
+    }
+  } catch {
+    // The direct mapping candidate can still be validated when log reads fail.
+  }
+
+  const checked = new Set<string>();
+  for (const operatorId of candidates) {
+    if (checked.has(operatorId.toString())) continue;
+    checked.add(operatorId.toString());
+
+    try {
+      const [operatorWallet, whitelisted] = await Promise.all([
+        readContract({
+          address: registry,
+          abi: operatorRegistryAbi,
+          functionName: "getOperatorWallet",
+          args: [operatorId],
+        }),
+        readContract({
+          address: registry,
+          abi: operatorRegistryAbi,
+          functionName: "isWhitelisted",
+          args: [operatorId],
+        }),
+      ]);
+
+      if (Boolean(whitelisted) && String(operatorWallet).toLowerCase() === wallet.toLowerCase()) {
+        return operatorId;
+      }
+    } catch {
+      // Continue with older registrations for this wallet.
+    }
+  }
+
+  return null;
+}
+
+async function loadActiveOperators(registry: Address) {
+  const registrations = await publicClient.getLogs({
+    address: registry,
+    event: OPERATOR_REGISTERED_EVENT,
+    fromBlock: 0n,
+    toBlock: "latest",
+    strict: true,
+  });
+  const latestById = new Map<string, { id: bigint; name: string; wallet: Address }>();
+
+  for (const registration of registrations) {
+    const { operatorId, name, wallet } = registration.args;
+    if (typeof operatorId !== "bigint" || typeof name !== "string" || typeof wallet !== "string") continue;
+    latestById.set(operatorId.toString(), { id: operatorId, name, wallet });
+  }
+
+  const activeOperators = await Promise.all(
+    [...latestById.values()].map(async (operator) => {
+      const [currentWallet, whitelisted] = await Promise.all([
+        readContract({
+          address: registry,
+          abi: operatorRegistryAbi,
+          functionName: "getOperatorWallet",
+          args: [operator.id],
+        }),
+        readContract({
+          address: registry,
+          abi: operatorRegistryAbi,
+          functionName: "isWhitelisted",
+          args: [operator.id],
+        }),
+      ]);
+
+      if (!whitelisted || String(currentWallet).toLowerCase() !== operator.wallet.toLowerCase()) return null;
+      return { ...operator, wallet: String(currentWallet) as Address };
+    }),
+  );
+
+  return activeOperators
+    .filter((operator): operator is NonNullable<typeof operator> => operator !== null)
+    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+}
+
 export function App() {
   const [account, setAccount] = useState("");
-  const [role, setRole] = useState<UserRole | null>(routeToRole());
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [requestedRole, setRequestedRole] = useState<UserRole | null>(routeToRole());
 
   const [creditAddress, setCreditAddress] = useState("");
   const [membershipAddress, setMembershipAddress] = useState("");
@@ -85,7 +211,11 @@ export function App() {
   const [operatorId, setOperatorId] = useState("1");
   const [operatorWallet, setOperatorWallet] = useState("");
   const [operatorName, setOperatorName] = useState("Central Garage");
+  const [operatorForCategoryId, setOperatorForCategoryId] = useState("");
+  const [operatorToRemoveId, setOperatorToRemoveId] = useState("");
+  const [registeredOperators, setRegisteredOperators] = useState<Awaited<ReturnType<typeof loadActiveOperators>>>([]);
   const [pricePerHour, setPricePerHour] = useState("10");
+  const [categoryCapacity, setCategoryCapacity] = useState("1");
   const [noShowFee, setNoShowFee] = useState("5");
 
   const [categoryName, setCategoryName] = useState<CategoryName>("standard");
@@ -111,6 +241,12 @@ export function App() {
   const [monthKey, setMonthKey] = useState("");
 
   const [output, setOutput] = useState("Resolving contract addresses from ParkChainRouter.");
+  const [walletAccess, setWalletAccess] = useState({
+    account: "",
+    admin: false,
+    operator: false,
+    pending: false,
+  });
 
   const categoryHash = useMemo(
     () => categoryToBytes32(categoryName, customCategory),
@@ -118,13 +254,80 @@ export function App() {
   );
 
   useEffect(() => {
-    const onRouteChange = () => setRole(routeToRole());
+    const onRouteChange = () => setRequestedRole(routeToRole());
     window.addEventListener("hashchange", onRouteChange);
     window.addEventListener("popstate", onRouteChange);
     if (!window.location.hash) window.history.replaceState(null, "", "#/login");
     return () => {
       window.removeEventListener("hashchange", onRouteChange);
       window.removeEventListener("popstate", onRouteChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function resolveWalletAccess() {
+      if (!account || !registryAddress) {
+        setWalletAccess({ account, admin: false, operator: false, pending: Boolean(account) });
+        return;
+      }
+
+      setWalletAccess({ account, admin: false, operator: false, pending: true });
+
+      try {
+        const registry = toAddress(registryAddress, "OperatorRegistry address");
+        const connectedAccount = toAddress(account, "Connected account");
+        const ownerResult = await readContract({
+          address: registry,
+          abi: operatorRegistryAbi,
+          functionName: "owner",
+        });
+        const isAdmin = String(ownerResult).toLowerCase() === connectedAccount.toLowerCase();
+        const detectedOperatorId = await resolveOperatorIdForWallet(registry, connectedAccount);
+        const isOperator = detectedOperatorId !== null;
+        if (detectedOperatorId !== null) setOperatorId(detectedOperatorId.toString());
+
+        if (cancelled) return;
+
+        setWalletAccess({
+          account,
+          admin: isAdmin,
+          operator: isOperator,
+          pending: false,
+        });
+      } catch {
+        if (!cancelled) setWalletAccess({ account, admin: false, operator: false, pending: false });
+      }
+    }
+
+    void resolveWalletAccess();
+    return () => {
+      cancelled = true;
+    };
+  }, [account, registryAddress]);
+
+  useEffect(() => {
+    if (!registryAddress) {
+      setRegisteredOperators([]);
+      return;
+    }
+
+    void refreshRegisteredOperators().catch(() => setRegisteredOperators([]));
+  }, [registryAddress]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getConnectedWallet()
+      .then((connected) => {
+        if (!cancelled) setAccount(connected);
+      })
+      .catch(() => undefined);
+
+    const stopWatching = watchWalletAccounts(setAccount);
+    return () => {
+      cancelled = true;
+      stopWatching();
     };
   }, []);
 
@@ -191,6 +394,72 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function authorizeRequestedRole() {
+      if (!requestedRole) {
+        setRole(null);
+        return;
+      }
+
+      if (!account) {
+        setRole(null);
+        setOutput(`Connect your wallet to open the ${roleTitle(requestedRole)}.`);
+        return;
+      }
+
+      if (requestedRole === "customer") {
+        setRole("customer");
+        setOutput(`Signed in as ${roleTitle("customer")}.`);
+        return;
+      }
+
+      if (!registryAddress) {
+        setRole(null);
+        setOutput("Waiting for OperatorRegistry before checking wallet access.");
+        return;
+      }
+
+      try {
+        const registry = requireResolvedAddress(registryAddress, "OperatorRegistry address");
+        const connectedAccount = toAddress(account, "Connected account").toLowerCase();
+
+        if (requestedRole === "admin") {
+          const owner = String(
+            await readContract({
+              address: registry,
+              abi: operatorRegistryAbi,
+              functionName: "owner",
+            }),
+          ).toLowerCase();
+          if (connectedAccount !== owner) throw new Error("Connected wallet is not the platform admin");
+        } else {
+          const id = await resolveOperatorIdForWallet(registry, toAddress(account, "Connected account"));
+          if (id === null) throw new Error("Connected wallet is not a whitelisted operator");
+          setOperatorId(id.toString());
+        }
+
+        if (!cancelled) {
+          setRole(requestedRole);
+          setOutput(`Signed in as ${roleTitle(requestedRole)}.`);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRole(null);
+          setRequestedRole(null);
+          window.history.replaceState(null, "", "#/login");
+          setOutput(`Access denied\n${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+
+    void authorizeRequestedRole();
+    return () => {
+      cancelled = true;
+    };
+  }, [account, registryAddress, requestedRole]);
+
   async function run(label: string, action: () => Promise<unknown>) {
     try {
       setOutput(`${label}...`);
@@ -201,6 +470,23 @@ export function App() {
     }
   }
 
+  async function refreshRegisteredOperators() {
+    if (!registryAddress) {
+      setRegisteredOperators([]);
+      return [];
+    }
+
+    const operators = await loadActiveOperators(toAddress(registryAddress, "OperatorRegistry address"));
+    setRegisteredOperators(operators);
+    setOperatorToRemoveId((selected) =>
+      operators.some((operator) => operator.id.toString() === selected) ? selected : "",
+    );
+    setOperatorForCategoryId((selected) =>
+      operators.some((operator) => operator.id.toString() === selected) ? selected : "",
+    );
+    return operators;
+  }
+
   async function connect() {
     const connected = await connectWallet();
     setAccount(connected);
@@ -208,13 +494,15 @@ export function App() {
   }
 
   function loginAs(nextRole: UserRole) {
-    setRole(nextRole);
+    setRole(null);
+    setRequestedRole(nextRole);
     window.history.pushState(null, "", `#/${nextRole}`);
-    setOutput(`Signed in as ${roleTitle(nextRole)}.`);
+    setOutput(`Checking wallet access for ${roleTitle(nextRole)}.`);
   }
 
   function logout() {
     setRole(null);
+    setRequestedRole(null);
     window.history.pushState(null, "", "#/login");
     setOutput("Signed out. Select a role to continue.");
   }
@@ -260,8 +548,12 @@ export function App() {
   const app = {
     account,
     allocator,
+    canAccessAdmin: walletAccess.account.toLowerCase() === account.toLowerCase() && walletAccess.admin,
+    canAccessOperator: walletAccess.account.toLowerCase() === account.toLowerCase() && walletAccess.operator,
+    categoryCapacity,
     categoryEnabled,
     categoryHash,
+    categoryHashForName: (name: CategoryName) => categoryToBytes32(name, ""),
     categoryName,
     categoryNames: CATEGORY_NAMES,
     connect,
@@ -279,17 +571,21 @@ export function App() {
     monthKey,
     noShowFee,
     operatorId,
+    operatorForCategoryId,
     operatorName,
+    operatorToRemoveId,
     operatorWallet,
     output,
     parkCreditId: PARK_CREDIT_ID,
     pricePerHour,
     registryAddress,
+    registeredOperators,
     requireCredit,
     requireLedger,
     requireMembership,
     requireRegistry,
     requireTreasury,
+    refreshRegisteredOperators,
     reservationDuration,
     reservationId,
     reservationStartTime,
@@ -299,6 +595,7 @@ export function App() {
     selectedCategories,
     selectedCategoryHashes,
     setAllocator,
+    setCategoryCapacity,
     setCategoryEnabled,
     setCategoryName,
     setCreditRate,
@@ -308,7 +605,9 @@ export function App() {
     setMonthKey,
     setNoShowFee,
     setOperatorId,
+    setOperatorForCategoryId,
     setOperatorName,
+    setOperatorToRemoveId,
     setOperatorWallet,
     setPricePerHour,
     setReservationDuration,
@@ -329,6 +628,9 @@ export function App() {
     tierPriceWei,
     treasuryAddress,
     txBase,
+    walletAccessPending:
+      Boolean(account) &&
+      (walletAccess.account.toLowerCase() !== account.toLowerCase() || walletAccess.pending),
   };
 
   if (!role) return <LoginPage app={app} />;
@@ -341,7 +643,8 @@ export function App() {
           <h1>{roleTitle(role)}</h1>
           <p>
             {role === "admin" && "Manage platform configuration, operators, memberships, and treasury settings."}
-            {role === "operator" && "Manage pricing, no-show fees, and earnings for your registered parking operation."}
+            {role === "operator" &&
+              "Manage pricing, parking capacity, no-show fees, and earnings for your registered parking operation."}
             {role === "customer" && "Buy memberships, reserve parking or charging, and track your monthly usage."}
           </p>
         </div>
