@@ -1,10 +1,14 @@
 import { type Abi, type Address, createPublicClient, createWalletClient, custom, http } from "viem";
 import { hardhat } from "viem/chains";
 
+const LOCAL_TRANSACTION_GAS_LIMIT = 1_000_000n;
+
 declare global {
   interface Window {
     ethereum?: {
       request<T = unknown>(args: { method: string; params?: unknown[] }): Promise<T>;
+      on?(event: "accountsChanged", listener: (accounts: unknown) => void): void;
+      removeListener?(event: "accountsChanged", listener: (accounts: unknown) => void): void;
     };
   }
 }
@@ -20,6 +24,25 @@ export function requireEthereum() {
 export async function connectWallet() {
   const accounts = await requireEthereum().request<Address[]>({ method: "eth_requestAccounts" });
   return accounts[0] ?? "";
+}
+
+export async function getConnectedWallet() {
+  if (!window.ethereum) return "";
+  const accounts = await window.ethereum.request<Address[]>({ method: "eth_accounts" });
+  return accounts[0] ?? "";
+}
+
+export function watchWalletAccounts(listener: (account: string) => void) {
+  const ethereum = window.ethereum;
+  if (!ethereum?.on) return () => undefined;
+
+  const handleAccountsChanged = (value: unknown) => {
+    const accounts = Array.isArray(value) ? value : [];
+    listener(typeof accounts[0] === "string" ? accounts[0] : "");
+  };
+
+  ethereum.on("accountsChanged", handleAccountsChanged);
+  return () => ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
 }
 
 export function toAddress(value: string, label = "Address") {
@@ -85,8 +108,16 @@ export async function writeContract(args: {
     abi: args.abi,
     functionName: args.functionName,
     args: args.args ?? [],
+    // Avoid injected wallets using Hardhat's 21M fallback estimate, which is
+    // above the node's 16,777,216 per-transaction gas cap.
+    gas: LOCAL_TRANSACTION_GAS_LIMIT,
     value: args.value,
   } as any);
+
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") {
+    throw new Error(`Transaction reverted: ${hash}`);
+  }
 
   return hash;
 }

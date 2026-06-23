@@ -18,6 +18,8 @@ contract OperatorRegistry {
     address public owner;
 
     mapping(uint256 => Operator) public operators;
+    mapping(address => uint256) public operatorIdByWallet;
+    mapping(address => bool) private registeredOperatorWallets;
     mapping(uint256 => mapping(bytes32 => bool)) public supportedCategories;
     mapping(uint256 => mapping(bytes32 => uint256)) public pricePerHour;
     mapping(uint256 => uint256) public noShowFee;
@@ -48,8 +50,20 @@ contract OperatorRegistry {
     ) external onlyOwner {
         require(wallet != address(0), "OperatorRegistry: zero wallet");
         require(bytes(name).length > 0, "OperatorRegistry: empty name");
+        require(
+            !registeredOperatorWallets[wallet] || operatorIdByWallet[wallet] == operatorId,
+            "OperatorRegistry: wallet already registered"
+        );
+
+        address previousWallet = operators[operatorId].wallet;
+        if (previousWallet != address(0) && previousWallet != wallet) {
+            delete operatorIdByWallet[previousWallet];
+            registeredOperatorWallets[previousWallet] = false;
+        }
 
         operators[operatorId] = Operator({wallet: wallet, name: name, whitelisted: true});
+        operatorIdByWallet[wallet] = operatorId;
+        registeredOperatorWallets[wallet] = true;
 
         for (uint256 i = 0; i < categories.length; i++) {
             supportedCategories[operatorId][categories[i]] = true;
@@ -60,7 +74,10 @@ contract OperatorRegistry {
 
     function removeOperator(uint256 operatorId) external onlyOwner {
         require(operators[operatorId].wallet != address(0), "OperatorRegistry: unknown operator");
+        address wallet = operators[operatorId].wallet;
         operators[operatorId].whitelisted = false;
+        delete operatorIdByWallet[wallet];
+        registeredOperatorWallets[wallet] = false;
 
         emit OperatorRemoved(operatorId);
     }

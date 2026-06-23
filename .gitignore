@@ -5,6 +5,7 @@ frontend/dist/
 frontend/.vite/
 
 # Solidity build artifacts and caches
+*/.env
 out/
 cache/
 broadcast/

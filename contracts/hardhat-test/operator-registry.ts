@@ -33,10 +33,29 @@ describe("OperatorRegistry", function () {
     assert.equal(await registry.read.supportsCategory([1n, FAMILY_SLOT]), true);
     assert.equal(await registry.read.supportsCategory([1n, WOMEN_SLOT]), true);
     assert.equal((await registry.read.getOperatorWallet([1n])).toLowerCase(), operator.account.address);
+    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 1n);
 
     await registry.write.removeOperator([1n]);
 
     assert.equal(await registry.read.isWhitelisted([1n]), false);
+    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 0n);
+  });
+
+  it("keeps wallet-to-operator IDs unique and updates reassigned IDs", async function () {
+    const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperator([2n, operator.account.address, "Second Garage", [STANDARD]]),
+      "OperatorRegistry: wallet already registered",
+    );
+
+    await registry.write.registerOperator([1n, stranger.account.address, "New Central Garage", [STANDARD]]);
+
+    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 0n);
+    assert.equal(await registry.read.operatorIdByWallet([stranger.account.address]), 1n);
+    assert.equal((await registry.read.getOperatorWallet([1n])).toLowerCase(), stranger.account.address);
   });
 
   it("rejects non-admin registration and removal", async function () {
