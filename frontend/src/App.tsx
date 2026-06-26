@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { type Address, type Hex, keccak256, parseAbiItem, toBytes, zeroAddress } from "viem";
-import { operatorRegistryAbi, parkChainRouterAbi } from "./abi/contracts";
+import { type Address, type Hex, keccak256, parseAbiItem, parseEther, toBytes, zeroAddress } from "viem";
+import { membershipManagerAbi, operatorRegistryAbi, parkCreditAbi, parkingLedgerAbi, parkChainRouterAbi } from "./abi/contracts";
 import { StatusStrip } from "./components/shared-panels";
 import { Badge, Button } from "./components/ui";
 import {
@@ -21,6 +21,9 @@ import type { CategoryName, UserRole } from "./types";
 
 export const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike", "family", "women"] as const;
 export const PARK_CREDIT_ID = 1n;
+const BERLIN_TIME_ZONE = "Europe/Berlin";
+const HOUR_SECONDS = 3600n;
+const RESERVATION_STATUS_LABELS = ["Reserved", "Checked In", "Checked Out", "Cancelled", "No-Show"] as const;
 
 const ROUTER_ADDRESS = String(import.meta.env.VITE_PARKCHAIN_ROUTER_ADDRESS ?? "").trim();
 const OPERATOR_REGISTERED_EVENT = parseAbiItem(
@@ -51,6 +54,68 @@ function formatExpiry(value: unknown) {
   const expiry = typeof value === "bigint" ? value : BigInt(String(value || 0));
   if (expiry === 0n) return "0";
   return `${expiry.toString()} (${new Date(Number(expiry) * 1000).toLocaleString()})`;
+}
+
+function timeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const zonedTime = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  );
+
+  return zonedTime - date.getTime();
+}
+
+function formatBerlinDateTimeInput(timestampSeconds: number) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BERLIN_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestampSeconds * 1000));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+}
+
+function berlinDateTimeToUnixSeconds(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!match) throw new Error("Start time must be a Berlin date and time");
+
+  const [, year, month, day, hour, minute] = match.map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const firstPass = localAsUtc - timeZoneOffsetMs(new Date(localAsUtc), BERLIN_TIME_ZONE);
+  const secondPass = localAsUtc - timeZoneOffsetMs(new Date(firstPass), BERLIN_TIME_ZONE);
+
+  return BigInt(Math.floor(secondPass / 1000));
+}
+
+function parseReservation(result: unknown) {
+  const reservation = result as any;
+  const id = BigInt(reservation.id ?? reservation[0] ?? 0);
+  const member = String(reservation.member ?? reservation[1] ?? zeroAddress);
+  const startTime = BigInt(reservation.startTime ?? reservation[4] ?? 0);
+  const duration = BigInt(reservation.duration ?? reservation[5] ?? 0);
+  const status = Number(reservation.status ?? reservation[7] ?? 0);
+
+  return { id, member, startTime, duration, status };
 }
 
 function categoryToBytes32(name: CategoryName, customCategory: string) {
@@ -204,7 +269,7 @@ export function App() {
   const [tierId, setTierId] = useState("1");
   const [tierName, setTierName] = useState("Urban");
   const [tierCredits, setTierCredits] = useState("80");
-  const [tierPriceWei, setTierPriceWei] = useState("10000000000000000");
+  const [tierPriceWei, setTierPriceWei] = useState("0.01");
   const [tierHourCap, setTierHourCap] = useState("20");
   const [tierActive, setTierActive] = useState(true);
 
@@ -235,8 +300,17 @@ export function App() {
 
   const [memberLookup, setMemberLookup] = useState("");
   const [reservationId, setReservationId] = useState("0");
-  const [reservationStartTime, setReservationStartTime] = useState(String(Math.floor(Date.now() / 1000) + 3600));
+  const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
+  const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
+  const [memberSummary, setMemberSummary] = useState({
+    balance: "-",
+    active: "-",
+    tier: "-",
+    cap: "-",
+    expiry: "-",
+    reservations: "-",
+  });
   const [monthKey, setMonthKey] = useState("");
 
   const [output, setOutput] = useState("Resolving contract addresses from ParkChainRouter.");
@@ -529,6 +603,95 @@ export function App() {
     return toAddress(target, "Customer address");
   }
 
+  async function loadReservation(id = toUint(reservationId, "Reservation ID")) {
+    const result = await readContract({
+      address: requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "getReservation",
+      args: [id],
+    });
+    const reservation = parseReservation(result);
+    setSelectedReservation(reservation);
+    setReservationId(reservation.id.toString());
+    return result;
+  }
+
+  async function loadLatestMemberReservation() {
+    const reservations = (await readContract({
+      address: requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "getMemberReservations",
+      args: [requireAccount()],
+    })) as readonly bigint[];
+    const latestReservationId = reservations.at(-1);
+    if (latestReservationId === undefined) throw new Error("No reservations found for connected wallet");
+    await loadReservation(latestReservationId);
+    return latestReservationId;
+  }
+
+  async function refreshSelectedReservation() {
+    if (!selectedReservation && reservationId === "0") return null;
+    return loadReservation();
+  }
+
+  async function refreshMemberAccount() {
+    const member = memberReadAddress();
+    const [balance, active, tier, cap, expiry, reservations] = await Promise.all([
+      readContract({
+        address: requireCredit(),
+        abi: parkCreditAbi,
+        functionName: "balanceOf",
+        args: [member, PARK_CREDIT_ID],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "isMemberActive",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMemberTier",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMemberMonthlyHourCap",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMembershipExpiry",
+        args: [member],
+      }),
+      readContract({
+        address: requireLedger(),
+        abi: parkingLedgerAbi,
+        functionName: "getMemberReservations",
+        args: [member],
+      }),
+    ]);
+
+    setMemberSummary({
+      balance: formatReadResult(balance),
+      active: String(active),
+      tier: formatReadResult(tier),
+      cap: `${formatReadResult(cap)} h`,
+      expiry: formatExpiry(expiry),
+      reservations: Array.isArray(reservations) ? reservations.map((id) => id.toString()).join(", ") || "-" : "-",
+    });
+
+    return { balance, active, tier, cap, expiry: formatExpiry(expiry), reservations };
+  }
+
+  useEffect(() => {
+    if (role !== "customer" || !account || !creditAddress || !membershipAddress || !ledgerAddress) return;
+    void refreshMemberAccount().catch(() => undefined);
+  }, [role, account, memberLookup, creditAddress, membershipAddress, ledgerAddress]);
+
   function selectedCategoryHashes() {
     return CATEGORY_NAMES.filter((name) => selectedCategories[name]).map((name) => keccak256(toBytes(name)));
   }
@@ -544,6 +707,9 @@ export function App() {
     });
   }
 
+  const hasSelectedReservation =
+    selectedReservation !== null && selectedReservation.member.toLowerCase() !== zeroAddress;
+
   const app = {
     account,
     allocator,
@@ -558,13 +724,18 @@ export function App() {
     creditAddress,
     creditRate,
     customCategory,
+    ethToWei: parseEther,
     formatExpiry,
     gracePeriodMinutes,
+    hourSeconds: HOUR_SECONDS,
     ledgerAddress,
+    loadLatestMemberReservation,
+    loadReservation,
     loginAs,
     logout,
     memberLookup,
     memberReadAddress,
+    memberSummary,
     membershipAddress,
     monthKey,
     noShowFee,
@@ -576,6 +747,9 @@ export function App() {
     output,
     parkCreditId: PARK_CREDIT_ID,
     pricePerHour,
+    berlinDateTimeToUnixSeconds,
+    canUseReservedActions: hasSelectedReservation && selectedReservation?.status === 0,
+    canCheckOutReservation: hasSelectedReservation && selectedReservation?.status === 1,
     registryAddress,
     registeredOperators,
     requireCredit,
@@ -584,8 +758,19 @@ export function App() {
     requireRegistry,
     requireTreasury,
     refreshRegisteredOperators,
+    refreshMemberAccount,
+    refreshSelectedReservation,
     reservationDuration,
     reservationId,
+    reservationStatusLabel: hasSelectedReservation
+      ? RESERVATION_STATUS_LABELS[selectedReservation.status] ?? `Status ${selectedReservation.status}`
+      : "No reservation loaded",
+    reservationSummary: hasSelectedReservation
+      ? `#${selectedReservation.id.toString()} starts ${new Date(Number(selectedReservation.startTime) * 1000).toLocaleString(
+          "en-GB",
+          { timeZone: BERLIN_TIME_ZONE, dateStyle: "medium", timeStyle: "short" },
+        )} Berlin, ${Math.ceil(Number(selectedReservation.duration) / Number(HOUR_SECONDS))}h`
+      : "Reserve or load a reservation to show actions",
     reservationStartTime,
     role,
     routerAddress: ROUTER_ADDRESS,

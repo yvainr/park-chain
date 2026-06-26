@@ -314,7 +314,7 @@ export function AdminPage({ app }: any) {
                 <Input value={app.tierCredits} onChange={(event: any) => app.setTierCredits(event.target.value)} />
               </Label>
               <Label>
-                <span>Tier price wei</span>
+                <span>Tier price ETH</span>
                 <Input value={app.tierPriceWei} onChange={(event: any) => app.setTierPriceWei(event.target.value)} />
               </Label>
               <Label>
@@ -331,7 +331,7 @@ export function AdminPage({ app }: any) {
                       toUint(app.tierId, "Tier ID"),
                       app.tierName,
                       toUint(app.tierCredits, "Monthly credits"),
-                      toUint(app.tierPriceWei, "Tier price wei"),
+                      app.ethToWei(app.tierPriceWei),
                       toUint(app.tierHourCap, "Monthly hour cap"),
                       app.tierActive,
                     ]),
