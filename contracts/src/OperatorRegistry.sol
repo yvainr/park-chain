@@ -23,6 +23,7 @@ contract OperatorRegistry {
     mapping(uint256 => mapping(bytes32 => bool)) public supportedCategories;
     mapping(uint256 => mapping(bytes32 => uint256)) public pricePerHour;
     mapping(uint256 => uint256) public noShowFee;
+    mapping(uint256 => mapping(bytes32 => uint256)) private categoryCapacity;
 
     event OperatorRegistered(uint256 indexed operatorId, address indexed wallet, string name);
     event OperatorRemoved(uint256 indexed operatorId);
@@ -123,5 +124,17 @@ contract OperatorRegistry {
 
     function getOperatorWallet(uint256 operatorId) external view returns (address) {
         return operators[operatorId].wallet;
+    }
+
+    // Parking Operator should be able to set the total number of parking slots in the parking lot (e.g. 100 cars)
+    function setCategoryCapacity(uint256 operatorID, bytes32 category, uint256 capacity) external {
+        require(operators[operatorID].wallet == msg.sender, "OperatorRegistry: not operator");
+        require(capacity > 0, "OperatorRegistry: invalid capacity");
+
+        categoryCapacity[operatorID][category] = capacity;
+    }
+
+    function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns(uint256) {
+        return categoryCapacity[operatorID][category];
     }
 }

@@ -104,7 +104,7 @@ export function CustomerPage({ app }: any) {
                       toUint(app.operatorId, "Operator ID"),
                       app.categoryHash,
                       app.berlinDateTimeToUnixSeconds(app.reservationStartTime),
-                      toUint(app.reservationDuration, "Duration hours") * app.hourSeconds,
+                      toUint(app.reservationDuration, "Duration hours"),
                     ]);
                     await app.loadLatestMemberReservation();
                     await app.refreshMemberAccount();

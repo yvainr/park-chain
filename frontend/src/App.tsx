@@ -281,6 +281,7 @@ export function App() {
   const [registeredOperators, setRegisteredOperators] = useState<Awaited<ReturnType<typeof loadActiveOperators>>>([]);
   const [pricePerHour, setPricePerHour] = useState("10");
   const [noShowFee, setNoShowFee] = useState("5");
+  const [categoryCapacity, setCategoryCapacity] = useState("100");
 
   const [categoryName, setCategoryName] = useState<CategoryName>("standard");
   const [customCategory, setCustomCategory] = useState("");
@@ -720,6 +721,7 @@ export function App() {
     categoryHashForName: (name: CategoryName) => categoryToBytes32(name, ""),
     categoryName,
     categoryNames: CATEGORY_NAMES,
+    categoryCapacity,
     connect,
     creditAddress,
     creditRate,
@@ -766,10 +768,10 @@ export function App() {
       ? RESERVATION_STATUS_LABELS[selectedReservation.status] ?? `Status ${selectedReservation.status}`
       : "No reservation loaded",
     reservationSummary: hasSelectedReservation
-      ? `#${selectedReservation.id.toString()} starts ${new Date(Number(selectedReservation.startTime) * 1000).toLocaleString(
+        ? `#${selectedReservation.id.toString()} starts ${new Date(Number(selectedReservation.startTime) * 1000).toLocaleString(
           "en-GB",
           { timeZone: BERLIN_TIME_ZONE, dateStyle: "medium", timeStyle: "short" },
-        )} Berlin, ${Math.ceil(Number(selectedReservation.duration) / Number(HOUR_SECONDS))}h`
+        )} Berlin, ${selectedReservation.duration.toString()}h`
       : "Reserve or load a reservation to show actions",
     reservationStartTime,
     role,
@@ -779,6 +781,7 @@ export function App() {
     selectedCategoryHashes,
     setAllocator,
     setCategoryEnabled,
+    setCategoryCapacity,
     setCategoryName,
     setCreditRate,
     setCustomCategory,

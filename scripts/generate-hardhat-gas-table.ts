@@ -37,6 +37,7 @@ async function deployGasFixture() {
   await registry.write.registerOperator([OPERATOR_ID, operator.account.address, "Central Garage", [STANDARD]]);
   await registry.write.setPricePerHour([OPERATOR_ID, STANDARD, 10n], { account: operator.account });
   await registry.write.setNoShowFee([OPERATOR_ID, 4n], { account: operator.account });
+  await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 100n], { account: operator.account });
 
   return { deployer, operator, member, credit, membership, treasury, ledger };
 }
@@ -93,7 +94,7 @@ const rows: GasRow[] = [];
     contractName: "ParkingLedger",
     action: "reserve",
     gasUsed: await gasUsed(
-      await ledger.write.reserve([OPERATOR_ID, STANDARD, startTime, 2n * HOUR], { account: member.account }),
+      await ledger.write.reserve([OPERATOR_ID, STANDARD, startTime, 2n], { account: member.account }),
     ),
   });
 }
@@ -102,7 +103,7 @@ const rows: GasRow[] = [];
   const { membership, ledger, member } = await networkHelpers.loadFixture(deployGasFixture);
   await membership.write.purchaseMembership([URBAN], { account: member.account, value: parseEther("0.01") });
   const startTime = BigInt(await networkHelpers.time.latest()) + HOUR;
-  await ledger.write.reserve([OPERATOR_ID, STANDARD, startTime, 2n * HOUR], { account: member.account });
+  await ledger.write.reserve([OPERATOR_ID, STANDARD, startTime, 2n], { account: member.account });
   await networkHelpers.time.increaseTo(startTime);
 
   rows.push({

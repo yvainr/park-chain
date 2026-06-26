@@ -58,6 +58,54 @@ export function OperatorPage({ app }: any) {
 
         <Card>
           <CardHeader>
+            <CardTitle>Parking Capacity</CardTitle>
+            <CardDescription>Configure and review available slots for the selected operator ID and category.</CardDescription>
+          </CardHeader>
+          <CardContent className="tab-panel">
+            <Label>
+              <span>Category capacity</span>
+              <Input
+                min="1"
+                type="number"
+                value={app.categoryCapacity}
+                onChange={(event: any) => app.setCategoryCapacity(event.target.value)}
+              />
+            </Label>
+            <div className="actions">
+              <Button
+                onClick={() =>
+                  app.run("Set category capacity", () =>
+                    app.txBase(app.requireRegistry(), operatorRegistryAbi, "setCategoryCapacity", [
+                      toUint(app.operatorId, "Operator ID"),
+                      app.categoryHash,
+                      toUint(app.categoryCapacity, "Category capacity"),
+                    ]),
+                  )
+                }
+              >
+                Set Capacity
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  app.run("Category capacity", () =>
+                    readContract({
+                      address: app.requireRegistry(),
+                      abi: operatorRegistryAbi,
+                      functionName: "getCategoryCapacity",
+                      args: [toUint(app.operatorId, "Operator ID"), app.categoryHash],
+                    }),
+                  )
+                }
+              >
+                Get Capacity
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Earnings</CardTitle>
             <CardDescription>Review operator setup, accumulated credits, and payout configuration.</CardDescription>
           </CardHeader>
