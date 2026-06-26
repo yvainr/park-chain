@@ -225,17 +225,6 @@ export const operatorRegistryAbi = [
   },
   {
     type: "function",
-    name: "setCategoryCapacity",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "operatorID", type: "uint256" },
-      { name: "category", type: "bytes32" },
-      { name: "capacity", type: "uint256" },
-    ],
-    outputs: [],
-  },
-  {
-    type: "function",
     name: "isWhitelisted",
     stateMutability: "view",
     inputs: [{ name: "operatorId", type: "uint256" }],
@@ -274,16 +263,6 @@ export const operatorRegistryAbi = [
     stateMutability: "view",
     inputs: [{ name: "operatorId", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "getCategoryCapacity",
-    stateMutability: "view",
-    inputs: [
-      { name: "operatorID", type: "uint256" },
-      { name: "category", type: "bytes32" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
 

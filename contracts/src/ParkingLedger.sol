@@ -13,7 +13,6 @@ interface IParkingOperatorRegistry {
     function supportsCategory(uint256 operatorId, bytes32 category) external view returns (bool);
     function getPricePerHour(uint256 operatorId, bytes32 category) external view returns (uint256);
     function getNoShowFee(uint256 operatorId) external view returns (uint256);
-    function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns (uint256);
 }
 
 interface IParkingParkCredit {
@@ -117,24 +116,21 @@ contract ParkingLedger is Ownable {
         require(operatorRegistry.supportsCategory(operatorID, category), "ParkingLedger: unsupported category");
         require(!_hasOverlap(msg.sender, operatorID, category, startTime, duration), "ParkingLedger: overlap");
 
-        uint256 occupied = _countOverlapReservations(operatorID, category, startTime, duration);
-        uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
-        require(capacity > occupied, "ParkingLedger: category slot-capacity full");
-
         uint256 monthKey = _monthKey(startTime);
+        uint256 reservedHours = _billableHours(duration);
         uint256 cap = membershipManager.getMemberMonthlyHourCap(msg.sender);
         require(cap > 0, "ParkingLedger: no monthly cap");
         require(
-            usedHoursByCategory[msg.sender][category][monthKey] + duration <= cap,
+            usedHoursByCategory[msg.sender][category][monthKey] + reservedHours <= cap,
             "ParkingLedger: category cap exceeded"
         );
         require(
-            usedHoursByOperator[msg.sender][operatorID][monthKey] + duration <= cap,
+            usedHoursByOperator[msg.sender][operatorID][monthKey] + reservedHours <= cap,
             "ParkingLedger: operator cap exceeded"
         );
 
-        usedHoursByCategory[msg.sender][category][monthKey] += duration;
-        usedHoursByOperator[msg.sender][operatorID][monthKey] += duration;
+        usedHoursByCategory[msg.sender][category][monthKey] += reservedHours;
+        usedHoursByOperator[msg.sender][operatorID][monthKey] += reservedHours;
 
         reservationID = nextReservationID++;
 
@@ -178,7 +174,7 @@ contract ParkingLedger is Ownable {
         require(block.timestamp >= reservation.startTime, "ParkingLedger: too early");
 
         uint256 chargedCredits = operatorRegistry.getPricePerHour(reservation.operatorID, reservation.category)
-            * reservation.duration;
+            * _billableHours(reservation.duration);
 
         _chargeAndAllocate(reservation.member, reservation.operatorID, chargedCredits);
 
@@ -265,7 +261,7 @@ contract ParkingLedger is Ownable {
     }
 
     function _calculateOverstayFee(Reservation storage reservation) private view returns (uint256) {
-        uint256 reservedSeconds = reservation.duration * 1 hours;
+        uint256 reservedSeconds = reservation.duration;
         uint256 graceSeconds = gracePeriodMinutes * 1 minutes;
         uint256 actualSeconds = block.timestamp - reservation.checkInTime;
 
@@ -282,8 +278,9 @@ contract ParkingLedger is Ownable {
 
     function _releaseReservedHours(Reservation storage reservation) private {
         uint256 monthKey = _monthKey(reservation.startTime);
-        usedHoursByCategory[reservation.member][reservation.category][monthKey] -= reservation.duration;
-        usedHoursByOperator[reservation.member][reservation.operatorID][monthKey] -= reservation.duration;
+        uint256 reservedHours = _billableHours(reservation.duration);
+        usedHoursByCategory[reservation.member][reservation.category][monthKey] -= reservedHours;
+        usedHoursByOperator[reservation.member][reservation.operatorID][monthKey] -= reservedHours;
     }
 
     function _hasOverlap(
@@ -293,7 +290,7 @@ contract ParkingLedger is Ownable {
         uint256 startTime,
         uint256 duration
     ) private view returns (bool) {
-        uint256 endTime = startTime + (duration * 1 hours);
+        uint256 endTime = startTime + duration;
         uint256[] memory reservationIDs = memberReservations[member];
 
         for (uint256 i = 0; i < reservationIDs.length; i++) {
@@ -307,7 +304,7 @@ contract ParkingLedger is Ownable {
                 continue;
             }
 
-            uint256 existingEndTime = existing.startTime + (existing.duration * 1 hours);
+            uint256 existingEndTime = existing.startTime + existing.duration;
             if (startTime < existingEndTime && endTime > existing.startTime) {
                 return true;
             }
@@ -324,33 +321,7 @@ contract ParkingLedger is Ownable {
         return timestamp / 30 days;
     }
 
-    // The Parking Ledger should check that the number of cars parked at the same time doesn't exceed the parking lot limitation (e.g. 100 cars)
-    function _countOverlapReservations(
-        uint256 operatorID,
-        bytes32 category,
-        uint256 startTime,
-        uint256 duration
-    ) private view returns (uint256 count) {
-        uint256 endTime = startTime + (duration * 1 hours);
-
-        for (uint256 i = 0; i < nextReservationID; i++) {
-            Reservation storage existing = reservations[i];
-            
-            if (!_isActiveForOverlap(existing.status)) {
-                continue;
-            }
-
-            if (existing.operatorID != operatorID || existing.category != category) {
-                continue;
-            }
-
-            uint256 existingEndTime = existing.startTime + (existing.duration * 1 hours);
-            
-            bool overlap = startTime < existingEndTime && endTime > existing.startTime;
-            
-            if (overlap) {
-                count++;
-            }
-        }
+    function _billableHours(uint256 durationSeconds) private pure returns (uint256) {
+        return (durationSeconds + 1 hours - 1) / 1 hours;
     }
 }

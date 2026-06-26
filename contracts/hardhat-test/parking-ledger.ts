@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  DISABLED,
-  EV_CHARGING,
   FAMILY_SLOT,
   HOUR,
   OPERATOR_ID,
@@ -35,30 +33,6 @@ describe("ParkingLedger", function () {
     assert.equal(reservation.status, 0);
     assert.equal(await ledger.read.getUsedHoursByCategory([member.account.address, FAMILY_SLOT, monthKey]), 2n);
     assert.equal(await ledger.read.getUsedHoursByOperator([member.account.address, OPERATOR_ID, monthKey]), 2n);
-  });
-
-  it("enforces zero, available, and full category capacity", async function () {
-    const { ledger, membership, registry, operator, member, secondMember } =
-      await networkHelpers.loadFixture(deploySystemFixture);
-    const now = BigInt(await networkHelpers.time.latest());
-    const startTime = now + HOUR;
-
-    await registry.write.setSupportedCategory([OPERATOR_ID, DISABLED, true]);
-    await purchaseMembership(membership, member);
-    await purchaseMembership(membership, secondMember);
-
-    await viem.assertions.revertWith(
-      ledger.write.reserve([OPERATOR_ID, DISABLED, startTime, 2n], { account: member.account }),
-      "ParkingLedger: category slot-capacity full",
-    );
-
-    await registry.write.setCategoryCapacity([OPERATOR_ID, DISABLED, 1n], { account: operator.account });
-    await reserve(ledger, member, OPERATOR_ID, DISABLED, startTime, 2n);
-
-    await viem.assertions.revertWith(
-      ledger.write.reserve([OPERATOR_ID, DISABLED, startTime, 2n], { account: secondMember.account }),
-      "ParkingLedger: category slot-capacity full",
-    );
   });
 
   it("rejects inactive members, unsupported categories, removed operators, and expired memberships", async function () {
@@ -97,9 +71,8 @@ describe("ParkingLedger", function () {
     );
   });
 
-  it("rejects invalid reservation inputs, overlaps, category capacity, and monthly cap excess", async function () {
-    const { ledger, membership, registry, operator, member, secondMember } =
-      await networkHelpers.loadFixture(deploySystemFixture);
+  it("rejects invalid reservation inputs, overlaps, and monthly cap excess", async function () {
+    const { ledger, membership, member, secondMember } = await networkHelpers.loadFixture(deploySystemFixture);
     const now = BigInt(await networkHelpers.time.latest());
     const startTime = now + HOUR;
 
@@ -117,24 +90,16 @@ describe("ParkingLedger", function () {
       "ParkingLedger: overlap",
     );
 
-    await registry.write.setCategoryCapacity([OPERATOR_ID, EV_CHARGING, 1n], { account: operator.account });
-    await purchaseMembership(membership, secondMember);
-    await reserve(ledger, member, OPERATOR_ID, EV_CHARGING, startTime + 10n * HOUR, 2n);
-
     await viem.assertions.revertWith(
-      ledger.write.reserve([OPERATOR_ID, EV_CHARGING, startTime + 10n * HOUR, 1n], { account: secondMember.account }),
-      "ParkingLedger: category slot-capacity full",
-    );
-
-    await viem.assertions.revertWith(
-      ledger.write.reserve([OPERATOR_ID, STANDARD, startTime + 4n * HOUR, 18n], { account: member.account }),
+      ledger.write.reserve([OPERATOR_ID, STANDARD, startTime + 4n * HOUR, 18n * HOUR], { account: member.account }),
       "ParkingLedger: category cap exceeded",
     );
 
+    await purchaseMembership(membership, secondMember);
     await reserve(ledger, secondMember, OPERATOR_ID, STANDARD, startTime + 20n * HOUR, 12n);
 
     await viem.assertions.revertWith(
-      ledger.write.reserve([OPERATOR_ID, FAMILY_SLOT, startTime + 33n * HOUR, 9n], { account: secondMember.account }),
+      ledger.write.reserve([OPERATOR_ID, FAMILY_SLOT, startTime + 33n * HOUR, 9n * HOUR], { account: secondMember.account }),
       "ParkingLedger: operator cap exceeded",
     );
   });
@@ -337,6 +302,6 @@ describe("ParkingLedger", function () {
     const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, now + HOUR, 24n);
 
     const reservation = await ledger.read.getReservation([reservationId]);
-    assert.equal(reservation.duration, 24n);
+    assert.equal(reservation.duration, 24n * HOUR);
   });
 });

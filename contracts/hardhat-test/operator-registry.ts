@@ -96,7 +96,7 @@ describe("OperatorRegistry", function () {
     );
   });
 
-  it("only lets the operator wallet set price, no-show fee, and capacity", async function () {
+  it("only lets the operator wallet set price and no-show fee", async function () {
     const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
 
     await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
@@ -111,18 +111,11 @@ describe("OperatorRegistry", function () {
       "OperatorRegistry: not operator wallet",
     );
 
-    await viem.assertions.revertWith(
-      registry.write.setCategoryCapacity([1n, STANDARD, 10n], { account: stranger.account }),
-      "OperatorRegistry: not operator",
-    );
-
     await registry.write.setPricePerHour([1n, STANDARD, 10n], { account: operator.account });
     await registry.write.setNoShowFee([1n, 3n], { account: operator.account });
-    await registry.write.setCategoryCapacity([1n, STANDARD, 10n], { account: operator.account });
 
     assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 10n);
     assert.equal(await registry.read.getNoShowFee([1n]), 3n);
-    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 10n);
   });
 
   it("rejects pricing unsupported categories and removed operators", async function () {

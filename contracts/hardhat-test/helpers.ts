@@ -54,10 +54,6 @@ export async function deploySystemFixture(options: { credits?: bigint; cap?: big
   await registry.write.setPricePerHour([OPERATOR_ID, WOMEN_SLOT, 9n], { account: operator.account });
   await registry.write.setNoShowFee([OPERATOR_ID, 5n], { account: operator.account });
 
-  for (const category of categories) {
-    await registry.write.setCategoryCapacity([OPERATOR_ID, category, 100n], { account: operator.account });
-  }
-
   return { deployer, operator, member, stranger, secondMember, allocator, credit, membership, registry, treasury, ledger };
 }
 
@@ -93,10 +89,10 @@ export async function reserve(
   operatorId: bigint,
   category: `0x${string}`,
   startTime: bigint,
-  duration: bigint,
+  durationHours: bigint,
 ) {
   const reservationId = await ledger.read.nextReservationID();
-  await ledger.write.reserve([operatorId, category, startTime, duration], { account: member.account });
+  await ledger.write.reserve([operatorId, category, startTime, durationHours * HOUR], { account: member.account });
   return reservationId;
 }
 

@@ -215,7 +215,6 @@ export function App() {
   const [operatorToRemoveId, setOperatorToRemoveId] = useState("");
   const [registeredOperators, setRegisteredOperators] = useState<Awaited<ReturnType<typeof loadActiveOperators>>>([]);
   const [pricePerHour, setPricePerHour] = useState("10");
-  const [categoryCapacity, setCategoryCapacity] = useState("1");
   const [noShowFee, setNoShowFee] = useState("5");
 
   const [categoryName, setCategoryName] = useState<CategoryName>("standard");
@@ -550,7 +549,6 @@ export function App() {
     allocator,
     canAccessAdmin: walletAccess.account.toLowerCase() === account.toLowerCase() && walletAccess.admin,
     canAccessOperator: walletAccess.account.toLowerCase() === account.toLowerCase() && walletAccess.operator,
-    categoryCapacity,
     categoryEnabled,
     categoryHash,
     categoryHashForName: (name: CategoryName) => categoryToBytes32(name, ""),
@@ -595,7 +593,6 @@ export function App() {
     selectedCategories,
     selectedCategoryHashes,
     setAllocator,
-    setCategoryCapacity,
     setCategoryEnabled,
     setCategoryName,
     setCreditRate,
