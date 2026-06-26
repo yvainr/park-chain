@@ -48,6 +48,8 @@ export const publicClient = createPublicClient({
   transport: http("http://127.0.0.1:8545"),
 });
 
+const HARDHAT_TX_GAS_CAP = 16_000_000n;
+
 function walletClient(account: Address) {
   return createWalletClient({
     account,
@@ -79,7 +81,7 @@ export async function writeContract(args: {
   value?: bigint;
 }) {
   const client = walletClient(args.account);
-  const hash = await client.writeContract({
+  const estimatedGas = await publicClient.estimateContractGas({
     account: args.account,
     address: args.address,
     abi: args.abi,
@@ -87,6 +89,23 @@ export async function writeContract(args: {
     args: args.args ?? [],
     value: args.value,
   } as any);
+  const gas = estimatedGas + estimatedGas / 5n + 10_000n;
+
+  if (gas > HARDHAT_TX_GAS_CAP) {
+    throw new Error(`Estimated gas ${gas.toString()} exceeds the local Hardhat transaction cap`);
+  }
+
+  const hash = await client.writeContract({
+    account: args.account,
+    address: args.address,
+    abi: args.abi,
+    functionName: args.functionName,
+    args: args.args ?? [],
+    value: args.value,
+    gas,
+  } as any);
+
+  await publicClient.waitForTransactionReceipt({ hash });
 
   return hash;
 }

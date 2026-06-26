@@ -11,9 +11,33 @@ import { connectWallet, readContract, toAddress, toUint, writeContract } from ".
 
 const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike", "family", "women"] as const;
 const PARK_CREDIT_ID = 1n;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const BERLIN_TIME_ZONE = "Europe/Berlin";
+const HOUR_SECONDS = 3600n;
+const MEMBERSHIP_TIERS = [
+  { id: "1", name: "Urban", credits: "80", priceWei: "10000000000000000", priceEth: "0.01 ETH", cap: "20 h" },
+  { id: "2", name: "Commuter", credits: "200", priceWei: "20000000000000000", priceEth: "0.02 ETH", cap: "60 h" },
+  { id: "3", name: "Unlimited", credits: "400", priceWei: "30000000000000000", priceEth: "0.03 ETH", cap: "120 h" },
+] as const;
+const DURATION_HOUR_OPTIONS = ["1", "2", "4", "8"] as const;
 
 type CategoryName = (typeof CATEGORY_NAMES)[number];
 type Tab = "admin" | "member" | "operator" | "reads";
+type ReservationView = {
+  member: string;
+  status: number;
+  startTime: bigint;
+};
+type MemberSummary = {
+  balance: string;
+  active: string;
+  tier: string;
+  cap: string;
+  expiry: string;
+  reservations: string;
+};
+
+const RESERVATION_STATUS_LABELS = ["Reserved", "Checked in", "Checked out", "Cancelled", "No-show"] as const;
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -82,6 +106,52 @@ function formatExpiry(value: unknown) {
   return `${expiry.toString()} (${new Date(Number(expiry) * 1000).toLocaleString()})`;
 }
 
+function formatBerlinDateTimeInput(timestampSeconds: number) {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: BERLIN_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(timestampSeconds * 1000));
+  const part = (type: string) => parts.find((entry) => entry.type === type)?.value ?? "00";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
+function berlinDateTimeToUnixSeconds(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) {
+    throw new Error("Start time must be a Berlin date and time");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute);
+  const offset = getTimeZoneOffsetMs(new Date(utcGuess), BERLIN_TIME_ZONE);
+  return BigInt(Math.floor((utcGuess - offset) / 1000));
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value ?? 0);
+  const zonedAsUtc = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"), part("second"));
+  return zonedAsUtc - date.getTime();
+}
+
 function categoryToBytes32(name: CategoryName, customCategory: string) {
   const custom = customCategory.trim();
   if (custom) {
@@ -94,9 +164,21 @@ function categoryToBytes32(name: CategoryName, customCategory: string) {
   return keccak256(toBytes(name));
 }
 
+function parseReservation(result: any): ReservationView {
+  return {
+    member: String(result.member ?? result[1] ?? ZERO_ADDRESS),
+    status: Number(result.status ?? result[7] ?? 0),
+    startTime: BigInt(result.startTime ?? result[4] ?? 0),
+  };
+}
+
+function isExistingReservation(reservation: ReservationView | null) {
+  return Boolean(reservation && reservation.member.toLowerCase() !== ZERO_ADDRESS);
+}
+
 export function App() {
   const [account, setAccount] = useState("");
-  const [activeTab, setActiveTab] = useState<Tab>("admin");
+  const [activeTab, setActiveTab] = useState<Tab>("member");
   const [creditAddress, setCreditAddress] = useState("");
   const [membershipAddress, setMembershipAddress] = useState("");
   const [registryAddress, setRegistryAddress] = useState("");
@@ -121,8 +203,17 @@ export function App() {
   const [creditRate, setCreditRate] = useState("1000000000000000");
   const [gracePeriodMinutes, setGracePeriodMinutes] = useState("15");
   const [reservationId, setReservationId] = useState("0");
-  const [reservationStartTime, setReservationStartTime] = useState(String(Math.floor(Date.now() / 1000) + 3600));
-  const [reservationDuration, setReservationDuration] = useState("2");
+  const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
+  const [reservationDurationHours, setReservationDurationHours] = useState("2");
+  const [selectedReservation, setSelectedReservation] = useState<ReservationView | null>(null);
+  const [memberSummary, setMemberSummary] = useState<MemberSummary>({
+    balance: "-",
+    active: "-",
+    tier: "-",
+    cap: "-",
+    expiry: "-",
+    reservations: "-",
+  });
   const [monthKey, setMonthKey] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<Record<CategoryName, boolean>>({
     standard: true,
@@ -180,10 +271,24 @@ export function App() {
     return toAddress(ledgerAddress, "ParkingLedger address");
   }
 
+  async function pasteAddress(setValue: (value: string) => void, label: string) {
+    const value = await navigator.clipboard.readText();
+    setValue(toAddress(value, label));
+    return `${label} pasted`;
+  }
+
   function memberReadAddress() {
     const target = memberLookup.trim() || account;
     if (!target) throw new Error("Connect wallet or enter a member address");
     return toAddress(target, "Member address");
+  }
+
+  function connectedMemberAddress() {
+    return requireAccount();
+  }
+
+  function selectedMembershipTier() {
+    return MEMBERSHIP_TIERS.find((tier) => tier.id === tierId) ?? MEMBERSHIP_TIERS[0];
   }
 
   function selectedCategoryHashes() {
@@ -201,11 +306,161 @@ export function App() {
     });
   }
 
+  async function loadReservation(id = toUint(reservationId, "Reservation ID")) {
+    const result = await readContract({
+      address: requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "getReservation",
+      args: [id],
+    });
+    const reservation = parseReservation(result);
+    setSelectedReservation(isExistingReservation(reservation) ? reservation : null);
+    return result;
+  }
+
+  async function setLatestMemberReservation() {
+    const ids = (await readContract({
+      address: requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "getMemberReservations",
+      args: [requireAccount()],
+    })) as bigint[];
+
+    const latestId = ids.at(-1);
+    if (latestId === undefined) {
+      setSelectedReservation(null);
+      return "No reservations found";
+    }
+
+    setReservationId(latestId.toString());
+    await loadReservation(latestId);
+    return latestId.toString();
+  }
+
+  async function refreshSelectedReservationAfter(hash: unknown) {
+    await loadReservation();
+    return hash;
+  }
+
+  async function purchaseSelectedTier() {
+    const tier = selectedMembershipTier();
+    setTierId(tier.id);
+    setTierPriceWei(tier.priceWei);
+    const hash = await txBase(
+      requireMembership(),
+      membershipManagerAbi,
+      "purchaseMembership",
+      [toUint(tier.id, "Tier ID")],
+      toUint(tier.priceWei, "Membership payment wei"),
+    );
+    await refreshMemberAccount();
+    return hash;
+  }
+
+  async function renewSelectedTier() {
+    const tier = selectedMembershipTier();
+    setTierId(tier.id);
+    setTierPriceWei(tier.priceWei);
+    const hash = await txBase(
+      requireMembership(),
+      membershipManagerAbi,
+      "renewMembership",
+      [toUint(tier.id, "Tier ID")],
+      toUint(tier.priceWei, "Membership payment wei"),
+    );
+    await refreshMemberAccount();
+    return hash;
+  }
+
+  async function refreshMemberAccount() {
+    const member = connectedMemberAddress();
+    const [balance, active, tier, cap, expiry, reservations] = await Promise.all([
+      readContract({
+        address: requireCredit(),
+        abi: parkCreditAbi,
+        functionName: "balanceOf",
+        args: [member, PARK_CREDIT_ID],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "isMemberActive",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMemberTier",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMemberMonthlyHourCap",
+        args: [member],
+      }),
+      readContract({
+        address: requireMembership(),
+        abi: membershipManagerAbi,
+        functionName: "getMembershipExpiry",
+        args: [member],
+      }),
+      readContract({
+        address: requireLedger(),
+        abi: parkingLedgerAbi,
+        functionName: "getMemberReservations",
+        args: [member],
+      }),
+    ]);
+
+    setMemberSummary({
+      balance: formatReadResult(balance),
+      active: String(active),
+      tier: formatReadResult(tier),
+      cap: `${formatReadResult(cap)} h`,
+      expiry: formatExpiry(expiry),
+      reservations: Array.isArray(reservations) ? reservations.map((id) => id.toString()).join(", ") || "-" : "-",
+    });
+
+    return {
+      balance,
+      active,
+      tier,
+      cap,
+      expiry: formatExpiry(expiry),
+      reservations,
+    };
+  }
+
+  async function reserveSlot() {
+    const durationHours = toUint(reservationDurationHours, "Duration hours");
+    const hash = await txBase(requireLedger(), parkingLedgerAbi, "reserve", [
+      toUint(operatorId, "Operator ID"),
+      categoryHash,
+      berlinDateTimeToUnixSeconds(reservationStartTime),
+      durationHours * HOUR_SECONDS,
+    ]);
+    const latestId = await setLatestMemberReservation();
+    await refreshMemberAccount();
+    return `Transaction: ${formatReadResult(hash)}\nReservation ID: ${latestId}`;
+  }
+
+  const reservationExists = isExistingReservation(selectedReservation);
+  const selectedReservationStatus = selectedReservation?.status;
+  const selectedReservationLabel =
+    selectedReservationStatus === undefined
+      ? "No reservation loaded"
+      : (RESERVATION_STATUS_LABELS[selectedReservationStatus] ?? `Status ${selectedReservationStatus}`);
+  const canUseReservedActions = reservationExists && selectedReservationStatus === 0;
+  const canCheckOut = reservationExists && selectedReservationStatus === 1;
+  const canMarkNoShow = canUseReservedActions;
+  const selectedTier = selectedMembershipTier();
+
   return (
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
-          <Badge>ParkChain MVP</Badge>
+          <Badge variant={account ? "success" : "secondary"}>ParkChain MVP</Badge>
           <h1>Membership, Operator Registry, and Treasury</h1>
           <p>Manage member tiers, ParkCredit balances, operator onboarding, category pricing, and treasury actions.</p>
         </div>
@@ -223,93 +478,83 @@ export function App() {
         <span>{ledgerAddress ? "Ledger address set" : "Ledger address missing"}</span>
       </div>
 
-      <div className="layout">
-        <div className="stack">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contracts</CardTitle>
-              <CardDescription>Paste deployed addresses from your local chain.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid two">
-              <Label>
-                <span>ParkCredit address</span>
-                <Input value={creditAddress} onChange={(event: any) => setCreditAddress(event.target.value)} />
-              </Label>
-              <Label>
-                <span>MembershipManager address</span>
-                <Input value={membershipAddress} onChange={(event: any) => setMembershipAddress(event.target.value)} />
-              </Label>
-              <Label>
-                <span>OperatorRegistry address</span>
-                <Input value={registryAddress} onChange={(event: any) => setRegistryAddress(event.target.value)} />
-              </Label>
-              <Label>
-                <span>OperatorTreasury address</span>
-                <Input value={treasuryAddress} onChange={(event: any) => setTreasuryAddress(event.target.value)} />
-              </Label>
-              <Label>
-                <span>ParkingLedger address</span>
-                <Input value={ledgerAddress} onChange={(event: any) => setLedgerAddress(event.target.value)} />
-              </Label>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Shared Inputs</CardTitle>
-              <CardDescription>These fields drive role-specific contract actions.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid three">
-              <Label>
-                <span>Tier ID</span>
-                <Input value={tierId} onChange={(event: any) => setTierId(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Operator ID</span>
-                <Input value={operatorId} onChange={(event: any) => setOperatorId(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Category</span>
-                <Select value={categoryName} onChange={(event: any) => setCategoryName(event.target.value as CategoryName)}>
-                  {CATEGORY_NAMES.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </Select>
-              </Label>
-              <Label>
-                <span>Custom category bytes32</span>
-                <Input value={customCategory} onChange={(event: any) => setCustomCategory(event.target.value)} />
-              </Label>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="output-card">
-          <CardHeader>
-            <CardTitle>Output</CardTitle>
-            <CardDescription>Transaction hashes, read results, and wallet errors appear here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre>{output}</pre>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="workspace-card">
-        <CardHeader className="workspace-header">
-          <div>
-            <CardTitle>Actions</CardTitle>
-            <CardDescription>Select a role surface and submit contract calls.</CardDescription>
-          </div>
-          <div className="tabs-list">
-            {(["admin", "member", "operator", "reads"] as const).map((tab) => (
-              <Button key={tab} variant={activeTab === tab ? "default" : "ghost"} onClick={() => setActiveTab(tab)}>
-                {tab[0].toUpperCase() + tab.slice(1)}
+      <details className="shared-inputs contract-addresses">
+        <summary>
+          <span>Contract Addresses</span>
+          <span>{[creditAddress, membershipAddress, registryAddress, treasuryAddress, ledgerAddress].filter(Boolean).length}/5 set</span>
+        </summary>
+        <div className="grid two shared-inputs-content">
+          <Label>
+            <span>ParkCredit address</span>
+            <div className="paste-row">
+              <Input value={creditAddress} onChange={(event: any) => setCreditAddress(event.target.value)} />
+              <Button variant="secondary" onClick={() => run("Paste ParkCredit address", () => pasteAddress(setCreditAddress, "ParkCredit address"))}>
+                Paste
               </Button>
-            ))}
-          </div>
+            </div>
+          </Label>
+          <Label>
+            <span>MembershipManager address</span>
+            <div className="paste-row">
+              <Input value={membershipAddress} onChange={(event: any) => setMembershipAddress(event.target.value)} />
+              <Button
+                variant="secondary"
+                onClick={() => run("Paste MembershipManager address", () => pasteAddress(setMembershipAddress, "MembershipManager address"))}
+              >
+                Paste
+              </Button>
+            </div>
+          </Label>
+          <Label>
+            <span>OperatorRegistry address</span>
+            <div className="paste-row">
+              <Input value={registryAddress} onChange={(event: any) => setRegistryAddress(event.target.value)} />
+              <Button
+                variant="secondary"
+                onClick={() => run("Paste OperatorRegistry address", () => pasteAddress(setRegistryAddress, "OperatorRegistry address"))}
+              >
+                Paste
+              </Button>
+            </div>
+          </Label>
+          <Label>
+            <span>OperatorTreasury address</span>
+            <div className="paste-row">
+              <Input value={treasuryAddress} onChange={(event: any) => setTreasuryAddress(event.target.value)} />
+              <Button
+                variant="secondary"
+                onClick={() => run("Paste OperatorTreasury address", () => pasteAddress(setTreasuryAddress, "OperatorTreasury address"))}
+              >
+                Paste
+              </Button>
+            </div>
+          </Label>
+          <Label>
+            <span>ParkingLedger address</span>
+            <div className="paste-row">
+              <Input value={ledgerAddress} onChange={(event: any) => setLedgerAddress(event.target.value)} />
+              <Button variant="secondary" onClick={() => run("Paste ParkingLedger address", () => pasteAddress(setLedgerAddress, "ParkingLedger address"))}>
+                Paste
+              </Button>
+            </div>
+          </Label>
+        </div>
+      </details>
+
+      <div className="workspace-layout">
+        <Card className="workspace-card">
+          <CardHeader className="workspace-header">
+            <div>
+              <CardTitle>Actions</CardTitle>
+              <CardDescription>Select a role surface and submit contract calls.</CardDescription>
+            </div>
+            <div className="tabs-list">
+              {(["admin", "member", "operator", "reads"] as const).map((tab) => (
+                <Button key={tab} variant={activeTab === tab ? "default" : "ghost"} onClick={() => setActiveTab(tab)}>
+                  {tab[0].toUpperCase() + tab.slice(1)}
+                </Button>
+              ))}
+            </div>
         </CardHeader>
 
         {activeTab === "admin" && (
@@ -497,238 +742,182 @@ export function App() {
 
         {activeTab === "member" && (
           <CardContent className="tab-panel">
-            <div className="grid two">
-              <Label>
-                <span>Membership payment wei</span>
-                <Input value={tierPriceWei} onChange={(event: any) => setTierPriceWei(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Member address for reads</span>
-                <Input
-                  placeholder="Defaults to connected wallet"
-                  value={memberLookup}
-                  onChange={(event: any) => setMemberLookup(event.target.value)}
-                />
-              </Label>
+            <div className="member-section">
+              <div className="section-heading">
+                <h3>Membership</h3>
+                <Badge>{selectedTier.name}</Badge>
+              </div>
+              <div className="tier-options">
+                {MEMBERSHIP_TIERS.map((tier) => (
+                  <button
+                    className={cn("tier-option", tierId === tier.id && "tier-option-active")}
+                    key={tier.id}
+                    type="button"
+                    onClick={() => {
+                      setTierId(tier.id);
+                      setTierPriceWei(tier.priceWei);
+                    }}
+                  >
+                    <strong>{tier.name}</strong>
+                    <span>{tier.priceEth}</span>
+                    <small>{tier.credits} credits · {tier.cap}/month</small>
+                  </button>
+                ))}
+              </div>
+              <div className="actions">
+                <Button onClick={() => run("Purchase membership", purchaseSelectedTier)}>Purchase</Button>
+                <Button variant="secondary" onClick={() => run("Renew membership", renewSelectedTier)}>
+                  Renew
+                </Button>
+              </div>
             </div>
 
-            <div className="grid three">
-              <Label>
-                <span>Reservation ID</span>
-                <Input value={reservationId} onChange={(event: any) => setReservationId(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Start timestamp</span>
-                <Input value={reservationStartTime} onChange={(event: any) => setReservationStartTime(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Duration hours</span>
-                <Input value={reservationDuration} onChange={(event: any) => setReservationDuration(event.target.value)} />
-              </Label>
+            <div className="member-section">
+              <div className="section-heading">
+                <h3>Reserve Slot</h3>
+                <Badge>{categoryName}</Badge>
+              </div>
+              <div className="grid three">
+                <Label>
+                  <span>Start time Berlin</span>
+                  <Input
+                    type="datetime-local"
+                    value={reservationStartTime}
+                    onChange={(event: any) => setReservationStartTime(event.target.value)}
+                  />
+                </Label>
+                <Label>
+                  <span>Duration</span>
+                  <Input
+                    min="1"
+                    step="1"
+                    type="number"
+                    value={reservationDurationHours}
+                    onChange={(event: any) => setReservationDurationHours(event.target.value)}
+                  />
+                </Label>
+                <Label>
+                  <span>Category</span>
+                  <Select value={categoryName} onChange={(event: any) => setCategoryName(event.target.value as CategoryName)}>
+                    {CATEGORY_NAMES.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </Select>
+                </Label>
+              </div>
+              <div className="duration-options">
+                {DURATION_HOUR_OPTIONS.map((hours) => (
+                  <Button
+                    key={hours}
+                    variant={reservationDurationHours === hours ? "default" : "secondary"}
+                    onClick={() => setReservationDurationHours(hours)}
+                  >
+                    {hours}h
+                  </Button>
+                ))}
+              </div>
+              <div className="actions">
+                <Button onClick={() => run("Reserve slot", reserveSlot)}>Reserve</Button>
+              </div>
             </div>
 
-            <div className="actions">
-              <Button
-                onClick={() =>
-                  run("Purchase membership", () =>
-                    txBase(
-                      requireMembership(),
-                      membershipManagerAbi,
-                      "purchaseMembership",
-                      [toUint(tierId, "Tier ID")],
-                      toUint(tierPriceWei, "Membership payment wei"),
-                    ),
-                  )
-                }
-              >
-                Purchase Membership
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Renew membership", () =>
-                    txBase(
-                      requireMembership(),
-                      membershipManagerAbi,
-                      "renewMembership",
-                      [toUint(tierId, "Tier ID")],
-                      toUint(tierPriceWei, "Membership payment wei"),
-                    ),
-                  )
-                }
-              >
-                Renew Membership
-              </Button>
+            <div className="member-section">
+              <div className="section-heading">
+                <h3>Current Reservation</h3>
+                <Badge variant={reservationExists ? "success" : "secondary"}>{selectedReservationLabel}</Badge>
+              </div>
+              <div className="status-strip compact">
+                <span>{reservationExists ? `Reservation #${reservationId}` : "Reserve or load a reservation"}</span>
+              </div>
+              <div className="actions">
+                <Button variant="secondary" onClick={() => run("Refresh reservation", loadReservation)}>
+                  Refresh
+                </Button>
+                {canUseReservedActions && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      run("Cancel reservation", async () =>
+                        refreshSelectedReservationAfter(
+                          await txBase(requireLedger(), parkingLedgerAbi, "cancelReservation", [
+                            toUint(reservationId, "Reservation ID"),
+                          ]),
+                        ),
+                      )
+                    }
+                  >
+                    Cancel
+                  </Button>
+                )}
+                {canUseReservedActions && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      run("Check in", async () =>
+                        refreshSelectedReservationAfter(
+                          await txBase(requireLedger(), parkingLedgerAbi, "checkIn", [toUint(reservationId, "Reservation ID")]),
+                        ),
+                      )
+                    }
+                  >
+                    Check In
+                  </Button>
+                )}
+                {canCheckOut && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      run("Check out", async () =>
+                        refreshSelectedReservationAfter(
+                          await txBase(requireLedger(), parkingLedgerAbi, "checkOut", [
+                            toUint(reservationId, "Reservation ID"),
+                          ]),
+                        ),
+                      )
+                    }
+                  >
+                    Check Out
+                  </Button>
+                )}
+                {canMarkNoShow && (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      run("Mark no-show", async () =>
+                        refreshSelectedReservationAfter(
+                          await txBase(requireLedger(), parkingLedgerAbi, "markNoShow", [
+                            toUint(reservationId, "Reservation ID"),
+                          ]),
+                        ),
+                      )
+                    }
+                  >
+                    Mark No-Show
+                  </Button>
+                )}
+              </div>
+              <details className="advanced-panel">
+                <summary>Load existing reservation</summary>
+                <div className="advanced-panel-content">
+                  <Label>
+                    <span>Reservation ID</span>
+                    <Input
+                      value={reservationId}
+                      onChange={(event: any) => {
+                        setReservationId(event.target.value);
+                        setSelectedReservation(null);
+                      }}
+                    />
+                  </Label>
+                  <Button variant="secondary" onClick={() => run("Reservation", loadReservation)}>
+                    Load
+                  </Button>
+                </div>
+              </details>
             </div>
 
-            <div className="actions">
-              <Button
-                onClick={() =>
-                  run("Reserve slot", () =>
-                    txBase(requireLedger(), parkingLedgerAbi, "reserve", [
-                      toUint(operatorId, "Operator ID"),
-                      categoryHash,
-                      toUint(reservationStartTime, "Start timestamp"),
-                      toUint(reservationDuration, "Duration hours"),
-                    ]),
-                  )
-                }
-              >
-                Reserve
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Cancel reservation", () =>
-                    txBase(requireLedger(), parkingLedgerAbi, "cancelReservation", [
-                      toUint(reservationId, "Reservation ID"),
-                    ]),
-                  )
-                }
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Check in", () =>
-                    txBase(requireLedger(), parkingLedgerAbi, "checkIn", [toUint(reservationId, "Reservation ID")]),
-                  )
-                }
-              >
-                Check In
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Check out", () =>
-                    txBase(requireLedger(), parkingLedgerAbi, "checkOut", [toUint(reservationId, "Reservation ID")]),
-                  )
-                }
-              >
-                Check Out
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Mark no-show", () =>
-                    txBase(requireLedger(), parkingLedgerAbi, "markNoShow", [toUint(reservationId, "Reservation ID")]),
-                  )
-                }
-              >
-                Mark No-Show
-              </Button>
-            </div>
-
-            <div className="read-grid">
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("ParkCredit balance", async () =>
-                    readContract({
-                      address: requireCredit(),
-                      abi: parkCreditAbi,
-                      functionName: "balanceOf",
-                      args: [memberReadAddress(), PARK_CREDIT_ID],
-                    }),
-                  )
-                }
-              >
-                Get Credit Balance
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Membership active", async () =>
-                    readContract({
-                      address: requireMembership(),
-                      abi: membershipManagerAbi,
-                      functionName: "isMemberActive",
-                      args: [memberReadAddress()],
-                    }),
-                  )
-                }
-              >
-                Is Member Active
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Member tier", async () =>
-                    readContract({
-                      address: requireMembership(),
-                      abi: membershipManagerAbi,
-                      functionName: "getMemberTier",
-                      args: [memberReadAddress()],
-                    }),
-                  )
-                }
-              >
-                Get Member Tier
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Monthly hour cap", async () =>
-                    readContract({
-                      address: requireMembership(),
-                      abi: membershipManagerAbi,
-                      functionName: "getMemberMonthlyHourCap",
-                      args: [memberReadAddress()],
-                    }),
-                  )
-                }
-              >
-                Get Hour Cap
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Membership expiry", async () =>
-                    formatExpiry(
-                      await readContract({
-                        address: requireMembership(),
-                        abi: membershipManagerAbi,
-                        functionName: "getMembershipExpiry",
-                        args: [memberReadAddress()],
-                      }),
-                    ),
-                  )
-                }
-              >
-                Get Expiry
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Member reservations", () =>
-                    readContract({
-                      address: requireLedger(),
-                      abi: parkingLedgerAbi,
-                      functionName: "getMemberReservations",
-                      args: [memberReadAddress()],
-                    }),
-                  )
-                }
-              >
-                Get Reservations
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  run("Reservation", () =>
-                    readContract({
-                      address: requireLedger(),
-                      abi: parkingLedgerAbi,
-                      functionName: "getReservation",
-                      args: [toUint(reservationId, "Reservation ID")],
-                    }),
-                  )
-                }
-              >
-                Get Reservation
-              </Button>
-            </div>
           </CardContent>
         )}
 
@@ -900,7 +1089,7 @@ export function App() {
                       address: requireLedger(),
                       abi: parkingLedgerAbi,
                       functionName: "getMonthKey",
-                      args: [toUint(reservationStartTime, "Start timestamp")],
+                      args: [berlinDateTimeToUnixSeconds(reservationStartTime)],
                     }),
                   )
                 }
@@ -944,7 +1133,119 @@ export function App() {
             </div>
           </CardContent>
         )}
-      </Card>
+        </Card>
+
+        <div className="side-stack">
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>My Account</CardTitle>
+                <CardDescription>Connected wallet summary.</CardDescription>
+              </div>
+              <Button variant="secondary" onClick={() => run("Refresh account", refreshMemberAccount)}>
+                Refresh
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="metric-grid side-metric-grid">
+                <div>
+                  <span>Credits</span>
+                  <strong>{memberSummary.balance}</strong>
+                </div>
+                <div>
+                  <span>Membership</span>
+                  <strong>{memberSummary.active}</strong>
+                </div>
+                <div>
+                  <span>Tier</span>
+                  <strong>{memberSummary.tier}</strong>
+                </div>
+                <div>
+                  <span>Hour cap</span>
+                  <strong>{memberSummary.cap}</strong>
+                </div>
+                <div className="metric-wide">
+                  <span>Expiry</span>
+                  <strong>{memberSummary.expiry}</strong>
+                </div>
+                <div className="metric-wide">
+                  <span>Reservations</span>
+                  <strong>{memberSummary.reservations}</strong>
+                </div>
+              </div>
+              <details className="advanced-panel">
+                <summary>Advanced reads</summary>
+                <div className="advanced-panel-content">
+                  <Label>
+                    <span>Lookup address</span>
+                    <Input
+                      placeholder="Defaults to connected wallet"
+                      value={memberLookup}
+                      onChange={(event: any) => setMemberLookup(event.target.value)}
+                    />
+                  </Label>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      run("Member reservations", () =>
+                        readContract({
+                          address: requireLedger(),
+                          abi: parkingLedgerAbi,
+                          functionName: "getMemberReservations",
+                          args: [memberReadAddress()],
+                        }),
+                      )
+                    }
+                  >
+                    Get Reservations
+                  </Button>
+                </div>
+              </details>
+            </CardContent>
+          </Card>
+
+          <Card className="output-card">
+            <CardHeader>
+              <CardTitle>Output</CardTitle>
+              <CardDescription>Transaction hashes, read results, and wallet errors appear here.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre>{output}</pre>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      <details className="shared-inputs">
+        <summary>
+          <span>Shared Inputs</span>
+          <span>{`Tier ${tierId} · Operator ${operatorId} · ${categoryName}`}</span>
+        </summary>
+        <div className="grid four shared-inputs-content">
+          <Label>
+            <span>Tier ID</span>
+            <Input value={tierId} onChange={(event: any) => setTierId(event.target.value)} />
+          </Label>
+          <Label>
+            <span>Operator ID</span>
+            <Input value={operatorId} onChange={(event: any) => setOperatorId(event.target.value)} />
+          </Label>
+          <Label>
+            <span>Category</span>
+            <Select value={categoryName} onChange={(event: any) => setCategoryName(event.target.value as CategoryName)}>
+              {CATEGORY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          <Label>
+            <span>Custom category bytes32</span>
+            <Input value={customCategory} onChange={(event: any) => setCustomCategory(event.target.value)} />
+          </Label>
+        </div>
+      </details>
     </main>
   );
 }
