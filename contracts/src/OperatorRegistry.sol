@@ -54,6 +54,7 @@ contract OperatorRegistry {
             !registeredOperatorWallets[wallet] || operatorIdByWallet[wallet] == operatorId,
             "OperatorRegistry: wallet already registered"
         );
+        require(operators[operatorId].wallet == address(0), "OperatorRegistry: operator ID already exists");
 
         address previousWallet = operators[operatorId].wallet;
         if (previousWallet != address(0) && previousWallet != wallet) {
