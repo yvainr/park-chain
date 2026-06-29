@@ -29,6 +29,7 @@ export function AdminPage({ app }: any) {
   const [savedCategoryAccess, setSavedCategoryAccess] = useState<Record<string, boolean>>({});
   const [draftCategoryAccess, setDraftCategoryAccess] = useState<Record<string, boolean>>({});
   const [categoryAccessLoading, setCategoryAccessLoading] = useState(false);
+  const [membershipTiers, setMembershipTiers] = useState([]);
 
   async function readCategoryAccess(operatorId: string) {
     const entries = await Promise.all(
@@ -90,12 +91,12 @@ export function AdminPage({ app }: any) {
         <Card>
           <CardHeader>
             <CardTitle>Operator Management</CardTitle>
-            <CardDescription>Whitelist operators and control the categories they can offer.</CardDescription>
+            <CardDescription>Whitelist operators and select the supported categories.</CardDescription>
           </CardHeader>
           <CardContent className="tab-panel">
             <section className="operator-action-block">
               <div className="operator-action-heading">
-                <h3>Register or update an operator</h3>
+                <h3>Register an operator</h3>
                 <p>The wallet address entered here becomes the authorized operator wallet for the numeric ID.</p>
               </div>
               <div className="grid three">
@@ -199,7 +200,7 @@ export function AdminPage({ app }: any) {
             <section className="operator-action-block">
               <div className="operator-action-heading">
                 <h3>Operator category access</h3>
-                <p>Select an operator, check every category it should support, then save the changed rows.</p>
+                <p>Select an operator, check every supported category, then save the changes.</p>
               </div>
               <Label>
                 <span>Active operator</span>
@@ -225,7 +226,7 @@ export function AdminPage({ app }: any) {
                   <TableRow>
                     <TableHead>Category</TableHead>
                     <TableHead>Category identifier</TableHead>
-                    <TableHead className="category-access-column">Allowed</TableHead>
+                    <TableHead className="category-access-column">Supported</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -304,47 +305,71 @@ export function AdminPage({ app }: any) {
             <CardDescription>Define tiers, platform grace period, and credit-to-ETH conversion.</CardDescription>
           </CardHeader>
           <CardContent className="tab-panel">
-            <div className="grid two">
-              <Label>
-                <span>Tier name</span>
-                <Input value={app.tierName} onChange={(event: any) => app.setTierName(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Monthly credits</span>
-                <Input value={app.tierCredits} onChange={(event: any) => app.setTierCredits(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Tier price ETH</span>
-                <Input value={app.tierPriceWei} onChange={(event: any) => app.setTierPriceWei(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Monthly hour cap</span>
-                <Input value={app.tierHourCap} onChange={(event: any) => app.setTierHourCap(event.target.value)} />
-              </Label>
-            </div>
+            <section className="operator-action-block">
+              <div className="operator-action-heading">
+                <h3>Define Tiers</h3>
+                <p> </p>
+              </div>
+              <div className="grid two">
+                <Label>
+                  <span>Name</span>
+                  <Input value={app.tierName} onChange={(event: any) => app.setTierName(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Monthly ParkCredits</span>
+                  <Input value={app.tierCredits} onChange={(event: any) => app.setTierCredits(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Price in wei</span>
+                  <Input value={app.tierPriceWei} onChange={(event: any) => app.setTierPriceWei(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Monthly hour cap</span>
+                  <Input value={app.tierHourCap} onChange={(event: any) => app.setTierHourCap(event.target.value)} />
+                </Label>
+              </div>
 
-            <div className="actions">
-              <Button
-                onClick={() =>
-                  app.run("Set membership tier", () =>
-                    app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
-                      toUint(app.tierId, "Tier ID"),
-                      app.tierName,
-                      toUint(app.tierCredits, "Monthly credits"),
-                      app.ethToWei(app.tierPriceWei),
-                      toUint(app.tierHourCap, "Monthly hour cap"),
-                      app.tierActive,
-                    ]),
-                  )
-                }
-              >
-                Set Tier
-              </Button>
-              <Label className="switch-row">
-                <Checkbox checked={app.tierActive} onChange={(event: any) => app.setTierActive(event.target.checked)} />
-                <span>Tier active</span>
-              </Label>
-            </div>
+              <div className="actions">
+                <Label className="switch-row">
+                  <Checkbox checked={app.tierActive} onChange={(event: any) => app.setTierActive(event.target.checked)} />
+                  <span>active</span>
+                </Label>
+
+                <Button
+                  onClick={() =>
+                    app.run("Set membership tier", () =>
+                      app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
+                        toUint(app.tierId, "Tier ID"),
+                        app.tierName,
+                        toUint(app.tierCredits, "Monthly ParkCredits"),
+                        toUint(app.tierPriceWei, "Price in wei"),
+                        toUint(app.tierHourCap, "Monthly hour cap"),
+                        app.tierActive,
+                      ]),
+                    )
+                  }
+                >
+                  Create Tier
+                </Button>
+              </div>
+              <Label><span>Existing Membership Tiers</span></Label>
+                
+              <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>ParkCredits</TableHead>
+                      <TableHead>Hour Cap</TableHead>
+                      <TableHead>Price (wei)</TableHead>
+                      <TableHead>Active</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                  </TableBody>
+                </Table>
+
+              </section>
 
             <div className="grid two">
               <Label>

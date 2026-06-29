@@ -113,6 +113,24 @@ export const membershipManagerAbi = [
     inputs: [{ name: "member", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "getTierIds",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "tiers",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "name", type: "string"}, 
+              { name: "monthlyCredits", type: "uint256"},
+              { name: "priceWei", type: "uint256"},
+              { name: "monthlyHourCap", type: "uint256"},
+              { name: "active", type: "bool"}],
+  },
 ] as const;
 
 export const operatorRegistryAbi = [
