@@ -109,7 +109,7 @@ describe("ParkChain integration", function () {
 
     await viem.assertions.revertWith(
       registry.write.setPricePerHour([OPERATOR_ID, STANDARD, 99n], { account: stranger.account }),
-      "OperatorRegistry: not operator wallet",
+      "OperatorRegistry: not owner or operator wallet",
     );
 
     await viem.assertions.revertWith(

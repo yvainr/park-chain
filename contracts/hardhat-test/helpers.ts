@@ -100,6 +100,20 @@ export async function reserve(
   return reservationId;
 }
 
+export async function reserveSlot(
+  ledger: any,
+  member: any,
+  operatorId: bigint,
+  category: `0x${string}`,
+  slotId: bigint,
+  startTime: bigint,
+  duration: bigint,
+) {
+  const reservationId = await ledger.read.nextReservationID();
+  await ledger.write.reserveSlot([operatorId, category, slotId, startTime, duration], { account: member.account });
+  return reservationId;
+}
+
 export async function expectOwnableUnauthorized(promise: Promise<unknown>, account: `0x${string}`) {
   await viem.assertions.revertWith(promise, `OwnableUnauthorizedAccount("${account}")`);
 }

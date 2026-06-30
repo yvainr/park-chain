@@ -27,12 +27,16 @@ contract MembershipManager {
     mapping(uint256 => Tier) public tiers;
     mapping(address => Membership) public memberships;
 
+    uint256[] public tierIds;
+    mapping(uint256 => bool) private tierExists;
+
     event TierUpdated(
         uint256 indexed tierId,
         string name,
         uint256 monthlyCredits,
         uint256 priceWei,
-        uint256 monthlyHourCap
+        uint256 monthlyHourCap, 
+        bool active
     );
     event MembershipPurchased(address indexed member, uint256 indexed tierId, uint256 expiresAt);
     event MembershipRenewed(address indexed member, uint256 indexed tierId, uint256 expiresAt);
@@ -59,6 +63,11 @@ contract MembershipManager {
     ) external onlyOwner {
         require(bytes(name).length > 0, "MembershipManager: empty name");
 
+        if (!tierExists[tierId]) {
+            tierExists[tierId] = true;
+            tierIds.push(tierId);
+        }
+
         tiers[tierId] = Tier({
             name: name,
             monthlyCredits: monthlyCredits,
@@ -67,7 +76,7 @@ contract MembershipManager {
             active: active
         });
 
-        emit TierUpdated(tierId, name, monthlyCredits, priceWei, monthlyHourCap);
+        emit TierUpdated(tierId, name, monthlyCredits, priceWei, monthlyHourCap, active);
     }
 
     function purchaseMembership(uint256 tierId) external payable {
@@ -122,5 +131,9 @@ contract MembershipManager {
     function _validatedTier(uint256 tierId) private view returns (Tier memory tier) {
         tier = tiers[tierId];
         require(tier.active, "MembershipManager: inactive tier");
+    }
+
+    function getTierIds() external view returns (uint256[] memory){
+        return tierIds;
     }
 }

@@ -113,6 +113,24 @@ export const membershipManagerAbi = [
     inputs: [{ name: "member", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "getTierIds",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "tiers",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "name", type: "string"}, 
+              { name: "monthlyCredits", type: "uint256"},
+              { name: "priceWei", type: "uint256"},
+              { name: "monthlyHourCap", type: "uint256"},
+              { name: "active", type: "bool"}],
+  },
 ] as const;
 
 export const operatorRegistryAbi = [
@@ -186,6 +204,34 @@ export const operatorRegistryAbi = [
   },
   {
     type: "function",
+    name: "registerOperatorWithSetup",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "operatorId", type: "uint256" },
+      { name: "wallet", type: "address" },
+      { name: "name", type: "string" },
+      { name: "categories", type: "bytes32[]" },
+      { name: "pricesPerHour", type: "uint256[]" },
+      { name: "capacities", type: "uint256[]" },
+      { name: "operatorNoShowFee", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "updateOperatorSettings",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "operatorId", type: "uint256" },
+      { name: "categories", type: "bytes32[]" },
+      { name: "pricesPerHour", type: "uint256[]" },
+      { name: "capacities", type: "uint256[]" },
+      { name: "operatorNoShowFee", type: "uint256" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "removeOperator",
     stateMutability: "nonpayable",
     inputs: [{ name: "operatorId", type: "uint256" }],
@@ -228,7 +274,7 @@ export const operatorRegistryAbi = [
     name: "setCategoryCapacity",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "operatorID", type: "uint256" },
+      { name: "operatorId", type: "uint256" },
       { name: "category", type: "bytes32" },
       { name: "capacity", type: "uint256" },
     ],
@@ -270,20 +316,20 @@ export const operatorRegistryAbi = [
   },
   {
     type: "function",
+    name: "getCategoryCapacity",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorId", type: "uint256" },
+      { name: "category", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "getOperatorWallet",
     stateMutability: "view",
     inputs: [{ name: "operatorId", type: "uint256" }],
     outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "function",
-    name: "getCategoryCapacity",
-    stateMutability: "view",
-    inputs: [
-      { name: "operatorID", type: "uint256" },
-      { name: "category", type: "bytes32" },
-    ],
-    outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
 
@@ -358,6 +404,19 @@ export const parkingLedgerAbi = [
   },
   {
     type: "function",
+    name: "reserveSlot",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "operatorID", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "slotID", type: "uint256" },
+      { name: "startTime", type: "uint256" },
+      { name: "duration", type: "uint256" },
+    ],
+    outputs: [{ name: "reservationID", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "cancelReservation",
     stateMutability: "nonpayable",
     inputs: [{ name: "reservationID", type: "uint256" }],
@@ -383,6 +442,42 @@ export const parkingLedgerAbi = [
     stateMutability: "nonpayable",
     inputs: [{ name: "reservationID", type: "uint256" }],
     outputs: [],
+  },
+  {
+    type: "function",
+    name: "isSlotAvailable",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorID", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "slotID", type: "uint256" },
+      { name: "startTime", type: "uint256" },
+      { name: "duration", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "getSlotReservations",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorID", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "slotID", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256[]" }],
+  },
+  {
+    type: "function",
+    name: "getFirstAvailableSlot",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorID", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "startTime", type: "uint256" },
+      { name: "duration", type: "uint256" },
+    ],
+    outputs: [{ name: "slotID", type: "uint256" }],
   },
   {
     type: "function",
@@ -416,6 +511,7 @@ export const parkingLedgerAbi = [
           { name: "duration", type: "uint256" },
           { name: "checkInTime", type: "uint256" },
           { name: "status", type: "uint8" },
+          { name: "slotID", type: "uint256" },
         ],
       },
     ],

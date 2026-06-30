@@ -28,6 +28,9 @@ import { readContract, toAddress, toUint } from "../lib/wallet";
 export function AdminPage({ app }: any) {
   const [savedCategoryAccess, setSavedCategoryAccess] = useState<Record<string, boolean>>({});
   const [draftCategoryAccess, setDraftCategoryAccess] = useState<Record<string, boolean>>({});
+  const [registrationCategorySetup, setRegistrationCategorySetup] = useState<
+    Record<string, { pricePerHour: string; capacity: string }>
+  >({});
   const [categoryAccessLoading, setCategoryAccessLoading] = useState(false);
 
   async function readCategoryAccess(operatorId: string) {
@@ -73,6 +76,18 @@ export function AdminPage({ app }: any) {
     };
   }, [app.operatorForCategoryId, app.registryAddress]);
 
+  useEffect(() => {
+    setRegistrationCategorySetup((current) => {
+      const next = { ...current };
+      for (const name of app.categoryNames) {
+        if (!next[name]) {
+          next[name] = { pricePerHour: app.pricePerHour, capacity: app.categoryCapacity };
+        }
+      }
+      return next;
+    });
+  }, [app.categoryNames, app.pricePerHour, app.categoryCapacity]);
+
   const changedCategories = useMemo(
     () =>
       app.categoryNames.filter(
@@ -80,6 +95,20 @@ export function AdminPage({ app }: any) {
       ),
     [app.categoryNames, draftCategoryAccess, savedCategoryAccess],
   );
+
+  function updateRegistrationCategorySetup(
+    name: string,
+    patch: Partial<{ pricePerHour: string; capacity: string }>,
+  ) {
+    setRegistrationCategorySetup({
+      ...registrationCategorySetup,
+      [name]: {
+        pricePerHour: registrationCategorySetup[name]?.pricePerHour ?? app.pricePerHour,
+        capacity: registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+        ...patch,
+      },
+    });
+  }
 
   return (
     <div className="dashboard-grid">
@@ -90,12 +119,12 @@ export function AdminPage({ app }: any) {
         <Card>
           <CardHeader>
             <CardTitle>Operator Management</CardTitle>
-            <CardDescription>Whitelist operators and control the categories they can offer.</CardDescription>
+            <CardDescription>Whitelist operators and select the supported categories.</CardDescription>
           </CardHeader>
           <CardContent className="tab-panel">
             <section className="operator-action-block">
               <div className="operator-action-heading">
-                <h3>Register or update an operator</h3>
+                <h3>Register an operator</h3>
                 <p>The wallet address entered here becomes the authorized operator wallet for the numeric ID.</p>
               </div>
               <div className="grid three">
@@ -115,43 +144,131 @@ export function AdminPage({ app }: any) {
                   <span>Operator name</span>
                   <Input value={app.operatorName} onChange={(event: any) => app.setOperatorName(event.target.value)} />
                 </Label>
+                <Label>
+                  <span>No-show fee</span>
+                  <Input
+                    min="0"
+                    type="number"
+                    value={app.noShowFee}
+                    onChange={(event: any) => app.setNoShowFee(event.target.value)}
+                  />
+                </Label>
               </div>
 
-              <div className="category-card">
-                <div>
-                  <h3>Registration categories</h3>
-                  <p>Selected categories are hashed to bytes32 before registration.</p>
-                </div>
-                <div className="checks">
-                  {app.categoryNames.map((name: string) => (
-                    <Label className="check-row" key={name}>
-                      <Checkbox
-                        checked={app.selectedCategories[name]}
-                        onChange={(event: any) =>
-                          app.setSelectedCategories({ ...app.selectedCategories, [name]: event.target.checked })
-                        }
-                      />
-                      <span>{name}</span>
-                    </Label>
-                  ))}
-                </div>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Supported</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Initial price per hour</TableHead>
+                    <TableHead>Initial slot capacity</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {app.categoryNames.map((name: string) => {
+                    const setup = registrationCategorySetup[name] ?? {
+                      pricePerHour: app.pricePerHour,
+                      capacity: app.categoryCapacity,
+                    };
+                    return (
+                      <TableRow key={name}>
+                        <TableCell className="category-access-column">
+                          <Checkbox
+                            aria-label={`Register ${name}`}
+                            checked={app.selectedCategories[name]}
+                            onChange={(event: any) =>
+                              app.setSelectedCategories({ ...app.selectedCategories, [name]: event.target.checked })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <strong>{name}</strong>
+                          <code title={app.categoryHashForName(name)}>
+                            {`${app.categoryHashForName(name).slice(0, 10)}…${app.categoryHashForName(name).slice(-8)}`}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={!app.selectedCategories[name]}
+                            min="0"
+                            type="number"
+                            value={setup.pricePerHour}
+                            onChange={(event: any) =>
+                              updateRegistrationCategorySetup(name, { pricePerHour: event.target.value })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={!app.selectedCategories[name]}
+                            min="1"
+                            type="number"
+                            value={setup.capacity}
+                            onChange={(event: any) =>
+                              updateRegistrationCategorySetup(name, { capacity: event.target.value })
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
 
               <Button
                 onClick={() =>
                   app.run("Register operator", async () => {
-                    const hash = await app.txBase(app.requireRegistry(), operatorRegistryAbi, "registerOperator", [
+                    const selectedCategoryNames = app.categoryNames.filter(
+                      (name: string) => app.selectedCategories[name],
+                    );
+                    if (selectedCategoryNames.length === 0) {
+                      throw new Error("Select at least one supported category");
+                    }
+
+                    for (const name of selectedCategoryNames) {
+                      const capacity = toUint(
+                        registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+                        `${name} slot capacity`,
+                      );
+                      if (capacity === 0n) throw new Error(`${name} slot capacity must be greater than zero`);
+                    }
+
+                    const categoryHashes = selectedCategoryNames.map((name: string) => app.categoryHashForName(name));
+                    const pricesPerHour = selectedCategoryNames.map((name: string) =>
+                      toUint(
+                        registrationCategorySetup[name]?.pricePerHour ?? app.pricePerHour,
+                        `${name} price per hour`,
+                      ),
+                    );
+                    const capacities = selectedCategoryNames.map((name: string) =>
+                      toUint(
+                        registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+                        `${name} slot capacity`,
+                      ),
+                    );
+
+                    const transactionHash = await app.txBase(
+                      app.requireRegistry(),
+                      operatorRegistryAbi,
+                      "registerOperatorWithSetup",
+                      [
                       toUint(app.operatorId, "Operator ID"),
                       toAddress(app.operatorWallet, "Operator wallet"),
                       app.operatorName,
-                      app.selectedCategoryHashes(),
-                    ]);
+                        categoryHashes,
+                        pricesPerHour,
+                        capacities,
+                        toUint(app.noShowFee, "No-show fee"),
+                      ],
+                    );
+
                     await app.refreshRegisteredOperators();
-                    return hash;
+                    app.setOperatorForCategoryId(app.operatorId);
+                    return { transactionHash, configuredCategories: selectedCategoryNames };
                   })
                 }
               >
-                Register Operator
+                Register and Configure Operator
               </Button>
             </section>
 
@@ -199,7 +316,7 @@ export function AdminPage({ app }: any) {
             <section className="operator-action-block">
               <div className="operator-action-heading">
                 <h3>Operator category access</h3>
-                <p>Select an operator, check every category it should support, then save the changed rows.</p>
+                <p>Select an operator, check every supported category, then save the changes.</p>
               </div>
               <Label>
                 <span>Active operator</span>
@@ -225,7 +342,7 @@ export function AdminPage({ app }: any) {
                   <TableRow>
                     <TableHead>Category</TableHead>
                     <TableHead>Category identifier</TableHead>
-                    <TableHead className="category-access-column">Allowed</TableHead>
+                    <TableHead className="category-access-column">Supported</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -304,47 +421,85 @@ export function AdminPage({ app }: any) {
             <CardDescription>Define tiers, platform grace period, and credit-to-ETH conversion.</CardDescription>
           </CardHeader>
           <CardContent className="tab-panel">
-            <div className="grid two">
-              <Label>
-                <span>Tier name</span>
-                <Input value={app.tierName} onChange={(event: any) => app.setTierName(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Monthly credits</span>
-                <Input value={app.tierCredits} onChange={(event: any) => app.setTierCredits(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Tier price wei</span>
-                <Input value={app.tierPriceWei} onChange={(event: any) => app.setTierPriceWei(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Monthly hour cap</span>
-                <Input value={app.tierHourCap} onChange={(event: any) => app.setTierHourCap(event.target.value)} />
-              </Label>
-            </div>
+            <section className="operator-action-block">
+              <div className="operator-action-heading">
+                <h3>Define Tiers</h3>
+                <p> </p>
+              </div>
+              <div className="grid two">
+                <Label>
+                  <span>Name</span>
+                  <Input value={app.tierName} onChange={(event: any) => app.setTierName(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Monthly ParkCredits</span>
+                  <Input value={app.tierCredits} onChange={(event: any) => app.setTierCredits(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Price in wei</span>
+                  <Input value={app.tierPriceWei} onChange={(event: any) => app.setTierPriceWei(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Monthly hour cap</span>
+                  <Input value={app.tierHourCap} onChange={(event: any) => app.setTierHourCap(event.target.value)} />
+                </Label>
+              </div>
 
-            <div className="actions">
-              <Button
-                onClick={() =>
-                  app.run("Set membership tier", () =>
-                    app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
-                      toUint(app.tierId, "Tier ID"),
-                      app.tierName,
-                      toUint(app.tierCredits, "Monthly credits"),
-                      toUint(app.tierPriceWei, "Tier price wei"),
-                      toUint(app.tierHourCap, "Monthly hour cap"),
-                      app.tierActive,
-                    ]),
-                  )
-                }
-              >
-                Set Tier
-              </Button>
-              <Label className="switch-row">
-                <Checkbox checked={app.tierActive} onChange={(event: any) => app.setTierActive(event.target.checked)} />
-                <span>Tier active</span>
-              </Label>
-            </div>
+              <div className="actions">
+                <Label className="switch-row">
+                  <Checkbox checked={app.tierActive} onChange={(event: any) => app.setTierActive(event.target.checked)} />
+                  <span>active</span>
+                </Label>
+
+                <Button
+                  onClick={() =>
+                    app.run("Set membership tier", async () => {
+                      const result = await app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
+                        toUint(app.tierId, "Tier ID"),
+                        app.tierName,
+                        toUint(app.tierCredits, "Monthly ParkCredits"),
+                        toUint(app.tierPriceWei, "Price in wei"),
+                        toUint(app.tierHourCap, "Monthly hour cap"),
+                        app.tierActive,
+                      ]);
+                      await app.refreshMembershipTiers();
+                      return result;
+                    })
+                  }
+                >
+                  Create Tier
+                </Button>
+              </div>
+              <Label><span>Existing Membership Tiers</span></Label>
+                
+              <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>ParkCredits</TableHead>
+                      <TableHead>Hour Cap</TableHead>
+                      <TableHead>Price (wei)</TableHead>
+                      <TableHead>Active</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {app.membershipTiers.map((tier: any) => (
+                      <TableRow key={tier.id.toString()}>
+                        <TableCell>{tier.id.toString()}</TableCell>
+                        <TableCell>
+                          <strong>{tier.name}</strong>
+                        </TableCell>
+                        <TableCell>{tier.monthlyCredits.toString()}</TableCell>
+                        <TableCell>{tier.monthlyHourCap.toString()}</TableCell>
+                        <TableCell>{tier.priceWei.toString()}</TableCell>
+                        <TableCell>{tier.active ? "Yes" : "No"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+
+              </section>
 
             <div className="grid two">
               <Label>

@@ -33,10 +33,6 @@ export function Input(props: any) {
   return <input className="ui-input" {...props} />;
 }
 
-export function NativeSelect(props: any) {
-  return <select className="ui-select" {...props} />;
-}
-
 export const Select = SelectPrimitive.Root;
 export const SelectValue = SelectPrimitive.Value;
 
