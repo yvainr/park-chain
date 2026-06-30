@@ -38,6 +38,14 @@ contract OperatorRegistry {
         _;
     }
 
+    modifier onlyOwnerOrOperatorWallet(uint256 operatorId) {
+        require(
+            msg.sender == owner || msg.sender == operators[operatorId].wallet,
+            "OperatorRegistry: not owner or operator wallet"
+        );
+        _;
+    }
+
     constructor() {
         owner = msg.sender;
     }
@@ -48,6 +56,58 @@ contract OperatorRegistry {
         string calldata name,
         bytes32[] calldata categories
     ) external onlyOwner {
+        _registerOperator(operatorId, wallet, name, categories);
+    }
+
+    function registerOperatorWithSetup(
+        uint256 operatorId,
+        address wallet,
+        string calldata name,
+        bytes32[] calldata categories,
+        uint256[] calldata pricesPerHour,
+        uint256[] calldata capacities,
+        uint256 operatorNoShowFee
+    ) external onlyOwner {
+        require(categories.length == pricesPerHour.length, "OperatorRegistry: price length mismatch");
+        require(categories.length == capacities.length, "OperatorRegistry: capacity length mismatch");
+
+        _registerOperator(operatorId, wallet, name, categories);
+        noShowFee[operatorId] = operatorNoShowFee;
+
+        for (uint256 i = 0; i < categories.length; i++) {
+            require(capacities[i] > 0, "OperatorRegistry: invalid capacity");
+            pricePerHour[operatorId][categories[i]] = pricesPerHour[i];
+            categoryCapacity[operatorId][categories[i]] = capacities[i];
+        }
+    }
+
+    function updateOperatorSettings(
+        uint256 operatorId,
+        bytes32[] calldata categories,
+        uint256[] calldata pricesPerHour,
+        uint256[] calldata capacities,
+        uint256 operatorNoShowFee
+    ) external onlyOwnerOrOperatorWallet(operatorId) {
+        require(categories.length == pricesPerHour.length, "OperatorRegistry: price length mismatch");
+        require(categories.length == capacities.length, "OperatorRegistry: capacity length mismatch");
+        require(operators[operatorId].whitelisted, "OperatorRegistry: not whitelisted");
+
+        noShowFee[operatorId] = operatorNoShowFee;
+
+        for (uint256 i = 0; i < categories.length; i++) {
+            require(supportedCategories[operatorId][categories[i]], "OperatorRegistry: unsupported category");
+            require(capacities[i] > 0, "OperatorRegistry: invalid capacity");
+            pricePerHour[operatorId][categories[i]] = pricesPerHour[i];
+            categoryCapacity[operatorId][categories[i]] = capacities[i];
+        }
+    }
+
+    function _registerOperator(
+        uint256 operatorId,
+        address wallet,
+        string calldata name,
+        bytes32[] calldata categories
+    ) private {
         require(wallet != address(0), "OperatorRegistry: zero wallet");
         require(bytes(name).length > 0, "OperatorRegistry: empty name");
         require(
@@ -96,13 +156,13 @@ contract OperatorRegistry {
         uint256 operatorId,
         bytes32 category,
         uint256 price
-    ) external onlyOperatorWallet(operatorId) {
+    ) external onlyOwnerOrOperatorWallet(operatorId) {
         require(operators[operatorId].whitelisted, "OperatorRegistry: not whitelisted");
         require(supportedCategories[operatorId][category], "OperatorRegistry: unsupported category");
         pricePerHour[operatorId][category] = price;
     }
 
-    function setNoShowFee(uint256 operatorId, uint256 fee) external onlyOperatorWallet(operatorId) {
+    function setNoShowFee(uint256 operatorId, uint256 fee) external onlyOwnerOrOperatorWallet(operatorId) {
         require(operators[operatorId].whitelisted, "OperatorRegistry: not whitelisted");
         noShowFee[operatorId] = fee;
     }
@@ -128,8 +188,7 @@ contract OperatorRegistry {
     }
 
     // Parking Operator should be able to set the total number of parking slots in the parking lot (e.g. 100 cars)
-    function setCategoryCapacity(uint256 operatorID, bytes32 category, uint256 capacity) external {
-        require(operators[operatorID].wallet == msg.sender, "OperatorRegistry: not operator");
+    function setCategoryCapacity(uint256 operatorID, bytes32 category, uint256 capacity) external onlyOwnerOrOperatorWallet(operatorID) {
         require(capacity > 0, "OperatorRegistry: invalid capacity");
 
         categoryCapacity[operatorID][category] = capacity;

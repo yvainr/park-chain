@@ -28,8 +28,10 @@ import { readContract, toAddress, toUint } from "../lib/wallet";
 export function AdminPage({ app }: any) {
   const [savedCategoryAccess, setSavedCategoryAccess] = useState<Record<string, boolean>>({});
   const [draftCategoryAccess, setDraftCategoryAccess] = useState<Record<string, boolean>>({});
+  const [registrationCategorySetup, setRegistrationCategorySetup] = useState<
+    Record<string, { pricePerHour: string; capacity: string }>
+  >({});
   const [categoryAccessLoading, setCategoryAccessLoading] = useState(false);
-  const [membershipTiers, setMembershipTiers] = useState([]);
 
   async function readCategoryAccess(operatorId: string) {
     const entries = await Promise.all(
@@ -74,6 +76,18 @@ export function AdminPage({ app }: any) {
     };
   }, [app.operatorForCategoryId, app.registryAddress]);
 
+  useEffect(() => {
+    setRegistrationCategorySetup((current) => {
+      const next = { ...current };
+      for (const name of app.categoryNames) {
+        if (!next[name]) {
+          next[name] = { pricePerHour: app.pricePerHour, capacity: app.categoryCapacity };
+        }
+      }
+      return next;
+    });
+  }, [app.categoryNames, app.pricePerHour, app.categoryCapacity]);
+
   const changedCategories = useMemo(
     () =>
       app.categoryNames.filter(
@@ -81,6 +95,20 @@ export function AdminPage({ app }: any) {
       ),
     [app.categoryNames, draftCategoryAccess, savedCategoryAccess],
   );
+
+  function updateRegistrationCategorySetup(
+    name: string,
+    patch: Partial<{ pricePerHour: string; capacity: string }>,
+  ) {
+    setRegistrationCategorySetup({
+      ...registrationCategorySetup,
+      [name]: {
+        pricePerHour: registrationCategorySetup[name]?.pricePerHour ?? app.pricePerHour,
+        capacity: registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+        ...patch,
+      },
+    });
+  }
 
   return (
     <div className="dashboard-grid">
@@ -116,43 +144,131 @@ export function AdminPage({ app }: any) {
                   <span>Operator name</span>
                   <Input value={app.operatorName} onChange={(event: any) => app.setOperatorName(event.target.value)} />
                 </Label>
+                <Label>
+                  <span>No-show fee</span>
+                  <Input
+                    min="0"
+                    type="number"
+                    value={app.noShowFee}
+                    onChange={(event: any) => app.setNoShowFee(event.target.value)}
+                  />
+                </Label>
               </div>
 
-              <div className="category-card">
-                <div>
-                  <h3>Registration categories</h3>
-                  <p>Selected categories are hashed to bytes32 before registration.</p>
-                </div>
-                <div className="checks">
-                  {app.categoryNames.map((name: string) => (
-                    <Label className="check-row" key={name}>
-                      <Checkbox
-                        checked={app.selectedCategories[name]}
-                        onChange={(event: any) =>
-                          app.setSelectedCategories({ ...app.selectedCategories, [name]: event.target.checked })
-                        }
-                      />
-                      <span>{name}</span>
-                    </Label>
-                  ))}
-                </div>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Supported</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Initial price per hour</TableHead>
+                    <TableHead>Initial slot capacity</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {app.categoryNames.map((name: string) => {
+                    const setup = registrationCategorySetup[name] ?? {
+                      pricePerHour: app.pricePerHour,
+                      capacity: app.categoryCapacity,
+                    };
+                    return (
+                      <TableRow key={name}>
+                        <TableCell className="category-access-column">
+                          <Checkbox
+                            aria-label={`Register ${name}`}
+                            checked={app.selectedCategories[name]}
+                            onChange={(event: any) =>
+                              app.setSelectedCategories({ ...app.selectedCategories, [name]: event.target.checked })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <strong>{name}</strong>
+                          <code title={app.categoryHashForName(name)}>
+                            {`${app.categoryHashForName(name).slice(0, 10)}…${app.categoryHashForName(name).slice(-8)}`}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={!app.selectedCategories[name]}
+                            min="0"
+                            type="number"
+                            value={setup.pricePerHour}
+                            onChange={(event: any) =>
+                              updateRegistrationCategorySetup(name, { pricePerHour: event.target.value })
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            disabled={!app.selectedCategories[name]}
+                            min="1"
+                            type="number"
+                            value={setup.capacity}
+                            onChange={(event: any) =>
+                              updateRegistrationCategorySetup(name, { capacity: event.target.value })
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
 
               <Button
                 onClick={() =>
                   app.run("Register operator", async () => {
-                    const hash = await app.txBase(app.requireRegistry(), operatorRegistryAbi, "registerOperator", [
+                    const selectedCategoryNames = app.categoryNames.filter(
+                      (name: string) => app.selectedCategories[name],
+                    );
+                    if (selectedCategoryNames.length === 0) {
+                      throw new Error("Select at least one supported category");
+                    }
+
+                    for (const name of selectedCategoryNames) {
+                      const capacity = toUint(
+                        registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+                        `${name} slot capacity`,
+                      );
+                      if (capacity === 0n) throw new Error(`${name} slot capacity must be greater than zero`);
+                    }
+
+                    const categoryHashes = selectedCategoryNames.map((name: string) => app.categoryHashForName(name));
+                    const pricesPerHour = selectedCategoryNames.map((name: string) =>
+                      toUint(
+                        registrationCategorySetup[name]?.pricePerHour ?? app.pricePerHour,
+                        `${name} price per hour`,
+                      ),
+                    );
+                    const capacities = selectedCategoryNames.map((name: string) =>
+                      toUint(
+                        registrationCategorySetup[name]?.capacity ?? app.categoryCapacity,
+                        `${name} slot capacity`,
+                      ),
+                    );
+
+                    const transactionHash = await app.txBase(
+                      app.requireRegistry(),
+                      operatorRegistryAbi,
+                      "registerOperatorWithSetup",
+                      [
                       toUint(app.operatorId, "Operator ID"),
                       toAddress(app.operatorWallet, "Operator wallet"),
                       app.operatorName,
-                      app.selectedCategoryHashes(),
-                    ]);
+                        categoryHashes,
+                        pricesPerHour,
+                        capacities,
+                        toUint(app.noShowFee, "No-show fee"),
+                      ],
+                    );
+
                     await app.refreshRegisteredOperators();
-                    return hash;
+                    app.setOperatorForCategoryId(app.operatorId);
+                    return { transactionHash, configuredCategories: selectedCategoryNames };
                   })
                 }
               >
-                Register Operator
+                Register and Configure Operator
               </Button>
             </section>
 
@@ -337,16 +453,18 @@ export function AdminPage({ app }: any) {
 
                 <Button
                   onClick={() =>
-                    app.run("Set membership tier", () =>
-                      app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
+                    app.run("Set membership tier", async () => {
+                      const result = await app.txBase(app.requireMembership(), membershipManagerAbi, "setTier", [
                         toUint(app.tierId, "Tier ID"),
                         app.tierName,
                         toUint(app.tierCredits, "Monthly ParkCredits"),
                         toUint(app.tierPriceWei, "Price in wei"),
                         toUint(app.tierHourCap, "Monthly hour cap"),
                         app.tierActive,
-                      ]),
-                    )
+                      ]);
+                      await app.refreshMembershipTiers();
+                      return result;
+                    })
                   }
                 >
                   Create Tier
@@ -366,6 +484,18 @@ export function AdminPage({ app }: any) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {app.membershipTiers.map((tier: any) => (
+                      <TableRow key={tier.id.toString()}>
+                        <TableCell>{tier.id.toString()}</TableCell>
+                        <TableCell>
+                          <strong>{tier.name}</strong>
+                        </TableCell>
+                        <TableCell>{tier.monthlyCredits.toString()}</TableCell>
+                        <TableCell>{tier.monthlyHourCap.toString()}</TableCell>
+                        <TableCell>{tier.priceWei.toString()}</TableCell>
+                        <TableCell>{tier.active ? "Yes" : "No"}</TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
 

@@ -15,6 +15,7 @@ import {
   parseEther,
   purchaseMembership,
   reserve,
+  reserveSlot,
   viem,
 } from "./helpers.js";
 
@@ -59,6 +60,149 @@ describe("ParkingLedger", function () {
       ledger.write.reserve([OPERATOR_ID, DISABLED, startTime, 2n], { account: secondMember.account }),
       "ParkingLedger: category slot-capacity full",
     );
+  });
+
+  it("stores specific slot reservations and indexes them by operator, category, and slot", async function () {
+    const { ledger, membership, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 7n, startTime, 2n);
+
+    const reservation = await ledger.read.getReservation([reservationId]);
+    const slotReservations = await ledger.read.getSlotReservations([OPERATOR_ID, STANDARD, 7n]);
+
+    assert.equal(reservation.slotID, 7n);
+    assert.deepEqual(slotReservations, [reservationId]);
+  });
+
+  it("blocks overlapping reservations for the same slot and allows overlapping reservations for different slots", async function () {
+    const { ledger, membership, member, secondMember } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    await purchaseMembership(membership, secondMember);
+    await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, startTime, 2n);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserveSlot([OPERATOR_ID, STANDARD, 1n, startTime + HOUR, 1n], {
+        account: secondMember.account,
+      }),
+      "ParkingLedger: slot unavailable",
+    );
+
+    const secondReservationId = await reserveSlot(
+      ledger,
+      secondMember,
+      OPERATOR_ID,
+      STANDARD,
+      2n,
+      startTime + HOUR,
+      1n,
+    );
+    const secondReservation = await ledger.read.getReservation([secondReservationId]);
+
+    assert.equal(secondReservation.slotID, 2n);
+  });
+
+  it("allows adjacent reservations on the same slot", async function () {
+    const { ledger, membership, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, startTime, 2n);
+
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, startTime + 2n * HOUR, 1n]), true);
+
+    const adjacentReservationId = await reserveSlot(
+      ledger,
+      member,
+      OPERATOR_ID,
+      STANDARD,
+      1n,
+      startTime + 2n * HOUR,
+      1n,
+    );
+    const adjacentReservation = await ledger.read.getReservation([adjacentReservationId]);
+
+    assert.equal(adjacentReservation.slotID, 1n);
+  });
+
+  it("rejects invalid slot identifiers outside configured capacity", async function () {
+    const { ledger, membership, registry, operator, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 2n], { account: operator.account });
+    await purchaseMembership(membership, member);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserveSlot([OPERATOR_ID, STANDARD, 0n, startTime, 1n], { account: member.account }),
+      "ParkingLedger: invalid slot",
+    );
+    await viem.assertions.revertWith(
+      ledger.write.reserveSlot([OPERATOR_ID, STANDARD, 3n, startTime, 1n], { account: member.account }),
+      "ParkingLedger: slot out of range",
+    );
+
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 0n, startTime, 1n]), false);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 3n, startTime, 1n]), false);
+  });
+
+  it("reports slot availability as active reservations move through terminal states", async function () {
+    const { ledger, membership, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const cancelledStart = now + HOUR;
+    const checkedOutStart = now + 4n * HOUR;
+    const noShowStart = now + 8n * HOUR;
+
+    await purchaseMembership(membership, member);
+
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, cancelledStart, 1n]), true);
+
+    const cancelledId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, cancelledStart, 1n);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, cancelledStart, 1n]), false);
+    await ledger.write.cancelReservation([cancelledId], { account: member.account });
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, cancelledStart, 1n]), true);
+
+    const checkedOutId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, checkedOutStart, 1n);
+    await networkHelpers.time.increaseTo(checkedOutStart);
+    await ledger.write.checkIn([checkedOutId], { account: member.account });
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, checkedOutStart, 1n]), false);
+    await networkHelpers.time.increaseTo(checkedOutStart + HOUR);
+    await ledger.write.checkOut([checkedOutId], { account: member.account });
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, checkedOutStart, 1n]), true);
+
+    const noShowId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, noShowStart, 1n);
+    await networkHelpers.time.increaseTo(noShowStart);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, noShowStart, 1n]), false);
+    await ledger.write.markNoShow([noShowId]);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, noShowStart, 1n]), true);
+  });
+
+  it("auto-assigns the first available slot for legacy reservations", async function () {
+    const { ledger, membership, registry, operator, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 2n], { account: operator.account });
+    await purchaseMembership(membership, member);
+    await purchaseMembership(membership, secondMember);
+
+    assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 2n]), 1n);
+
+    const firstReservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 2n);
+    const secondReservationId = await reserve(ledger, secondMember, OPERATOR_ID, STANDARD, startTime, 2n);
+    const firstReservation = await ledger.read.getReservation([firstReservationId]);
+    const secondReservation = await ledger.read.getReservation([secondReservationId]);
+
+    assert.equal(firstReservation.slotID, 1n);
+    assert.equal(secondReservation.slotID, 2n);
+    assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 2n]), 0n);
   });
 
   it("rejects inactive members, unsupported categories, removed operators, and expired memberships", async function () {

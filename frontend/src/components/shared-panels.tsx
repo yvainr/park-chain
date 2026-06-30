@@ -1,7 +1,22 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp, CircleCheck, CircleX, Info } from "lucide-react";
 import type { CategoryName } from "../types";
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label, NativeSelect } from "./ui";
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
+  Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui";
 
 function isConfigured(address: string) {
   return Boolean(address && !/^0x0{40}$/i.test(address));
@@ -125,7 +140,7 @@ export function ContractPanel({ app }: any) {
   );
 }
 
-export function SharedFields({ app, includeCustomerLookup = false, lockOperatorId = false }: any) {
+export function SharedFields({ app, lockOperatorId = false }: any) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -146,7 +161,7 @@ export function SharedFields({ app, includeCustomerLookup = false, lockOperatorI
               </button>
               <span id="shared-inputs-description" className="info-tooltip-content" role="tooltip">
                 Reusable contract parameters for the actions on this page. Changing a value affects every action that
-                uses the corresponding tier, operator, category, or customer address.
+                uses the corresponding tier, operator, or category.
               </span>
             </span>
           </div>
@@ -185,28 +200,23 @@ export function SharedFields({ app, includeCustomerLookup = false, lockOperatorI
             </Label>
             <Label>
               <span>Category</span>
-              <NativeSelect value={app.categoryName} onChange={(event: any) => app.setCategoryName(event.target.value as CategoryName)}>
-                {app.categoryNames.map((name: CategoryName) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select value={app.categoryName} onValueChange={(value: string) => app.setCategoryName(value as CategoryName)}>
+                <SelectTrigger aria-label="Shared category">
+                  <SelectValue placeholder="Select a category..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {app.categoryNames.map((name: CategoryName) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Label>
             <Label>
               <span>Custom category bytes32</span>
               <Input value={app.customCategory} onChange={(event: any) => app.setCustomCategory(event.target.value)} />
             </Label>
-            {includeCustomerLookup && (
-              <Label>
-                <span>Customer address for reads</span>
-                <Input
-                  placeholder="Defaults to connected wallet"
-                  value={app.memberLookup}
-                  onChange={(event: any) => app.setMemberLookup(event.target.value)}
-                />
-              </Label>
-            )}
           </CardContent>
         </div>
       </div>

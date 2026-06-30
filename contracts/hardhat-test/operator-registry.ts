@@ -41,7 +41,31 @@ describe("OperatorRegistry", function () {
     assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 0n);
   });
 
-  it("keeps wallet-to-operator IDs unique and updates reassigned IDs", async function () {
+  it("lets the admin register and configure an operator in one transaction", async function () {
+    const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperatorWithSetup([
+      1n,
+      operator.account.address,
+      "Central Garage",
+      [STANDARD, EV_CHARGING],
+      [10n, 12n],
+      [100n, 20n],
+      5n,
+    ]);
+
+    assert.equal(await registry.read.isWhitelisted([1n]), true);
+    assert.equal(await registry.read.supportsCategory([1n, STANDARD]), true);
+    assert.equal(await registry.read.supportsCategory([1n, EV_CHARGING]), true);
+    assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 10n);
+    assert.equal(await registry.read.getPricePerHour([1n, EV_CHARGING]), 12n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 100n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, EV_CHARGING]), 20n);
+    assert.equal(await registry.read.getNoShowFee([1n]), 5n);
+    assert.equal((await registry.read.getOperatorWallet([1n])).toLowerCase(), operator.account.address);
+  });
+
+  it("keeps wallet-to-operator IDs and operator IDs unique", async function () {
     const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
 
     await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
@@ -51,11 +75,14 @@ describe("OperatorRegistry", function () {
       "OperatorRegistry: wallet already registered",
     );
 
-    await registry.write.registerOperator([1n, stranger.account.address, "New Central Garage", [STANDARD]]);
+    await viem.assertions.revertWith(
+      registry.write.registerOperator([1n, stranger.account.address, "New Central Garage", [STANDARD]]),
+      "OperatorRegistry: operator ID already exists",
+    );
 
-    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 0n);
-    assert.equal(await registry.read.operatorIdByWallet([stranger.account.address]), 1n);
-    assert.equal((await registry.read.getOperatorWallet([1n])).toLowerCase(), stranger.account.address);
+    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 1n);
+    assert.equal(await registry.read.operatorIdByWallet([stranger.account.address]), 0n);
+    assert.equal((await registry.read.getOperatorWallet([1n])).toLowerCase(), operator.account.address);
   });
 
   it("rejects non-admin registration and removal", async function () {
@@ -89,6 +116,45 @@ describe("OperatorRegistry", function () {
       "OperatorRegistry: empty name",
     );
 
+    await viem.assertions.revertWith(
+      registry.write.registerOperatorWithSetup([
+        1n,
+        operator.account.address,
+        "Central Garage",
+        [STANDARD],
+        [],
+        [100n],
+        5n,
+      ]),
+      "OperatorRegistry: price length mismatch",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperatorWithSetup([
+        1n,
+        operator.account.address,
+        "Central Garage",
+        [STANDARD],
+        [10n],
+        [],
+        5n,
+      ]),
+      "OperatorRegistry: capacity length mismatch",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperatorWithSetup([
+        1n,
+        operator.account.address,
+        "Central Garage",
+        [STANDARD],
+        [10n],
+        [0n],
+        5n,
+      ]),
+      "OperatorRegistry: invalid capacity",
+    );
+
     await viem.assertions.revertWith(registry.write.removeOperator([404n]), "OperatorRegistry: unknown operator");
     await viem.assertions.revertWith(
       registry.write.setSupportedCategory([404n, STANDARD, true]),
@@ -96,25 +162,33 @@ describe("OperatorRegistry", function () {
     );
   });
 
-  it("only lets the operator wallet set price, no-show fee, and capacity", async function () {
+  it("lets the admin and operator wallet set price, no-show fee, and capacity", async function () {
     const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
 
     await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
 
     await viem.assertions.revertWith(
       registry.write.setPricePerHour([1n, STANDARD, 10n], { account: stranger.account }),
-      "OperatorRegistry: not operator wallet",
+      "OperatorRegistry: not owner or operator wallet",
     );
 
     await viem.assertions.revertWith(
       registry.write.setNoShowFee([1n, 3n], { account: stranger.account }),
-      "OperatorRegistry: not operator wallet",
+      "OperatorRegistry: not owner or operator wallet",
     );
 
     await viem.assertions.revertWith(
       registry.write.setCategoryCapacity([1n, STANDARD, 10n], { account: stranger.account }),
-      "OperatorRegistry: not operator",
+      "OperatorRegistry: not owner or operator wallet",
     );
+
+    await registry.write.setPricePerHour([1n, STANDARD, 8n]);
+    await registry.write.setNoShowFee([1n, 2n]);
+    await registry.write.setCategoryCapacity([1n, STANDARD, 9n]);
+
+    assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 8n);
+    assert.equal(await registry.read.getNoShowFee([1n]), 2n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 9n);
 
     await registry.write.setPricePerHour([1n, STANDARD, 10n], { account: operator.account });
     await registry.write.setNoShowFee([1n, 3n], { account: operator.account });
@@ -123,6 +197,62 @@ describe("OperatorRegistry", function () {
     assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 10n);
     assert.equal(await registry.read.getNoShowFee([1n]), 3n);
     assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 10n);
+  });
+
+  it("lets the operator update all supported category settings in one transaction", async function () {
+    const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperatorWithSetup([
+      1n,
+      operator.account.address,
+      "Central Garage",
+      [STANDARD, EV_CHARGING],
+      [10n, 12n],
+      [100n, 20n],
+      5n,
+    ]);
+
+    await viem.assertions.revertWith(
+      registry.write.updateOperatorSettings([1n, [STANDARD], [11n], [90n], 6n], { account: stranger.account }),
+      "OperatorRegistry: not owner or operator wallet",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.updateOperatorSettings([1n, [STANDARD], [], [90n], 6n], { account: operator.account }),
+      "OperatorRegistry: price length mismatch",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.updateOperatorSettings([1n, [STANDARD], [11n], [], 6n], { account: operator.account }),
+      "OperatorRegistry: capacity length mismatch",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.updateOperatorSettings([1n, [FAMILY_SLOT], [11n], [90n], 6n], { account: operator.account }),
+      "OperatorRegistry: unsupported category",
+    );
+
+    await viem.assertions.revertWith(
+      registry.write.updateOperatorSettings([1n, [STANDARD], [11n], [0n], 6n], { account: operator.account }),
+      "OperatorRegistry: invalid capacity",
+    );
+
+    await registry.write.updateOperatorSettings(
+      [1n, [STANDARD, EV_CHARGING], [11n, 13n], [90n, 25n], 6n],
+      { account: operator.account },
+    );
+
+    assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 11n);
+    assert.equal(await registry.read.getPricePerHour([1n, EV_CHARGING]), 13n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 90n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, EV_CHARGING]), 25n);
+    assert.equal(await registry.read.getNoShowFee([1n]), 6n);
+
+    await registry.write.updateOperatorSettings([1n, [STANDARD], [12n], [95n], 7n]);
+
+    assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 12n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 95n);
+    assert.equal(await registry.read.getNoShowFee([1n]), 7n);
   });
 
   it("rejects pricing unsupported categories and removed operators", async function () {
