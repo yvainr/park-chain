@@ -72,6 +72,7 @@ export const publicClient = createPublicClient({
 });
 
 const HARDHAT_TX_GAS_CAP = 16_000_000n;
+const accountWriteLocks = new Map<string, Promise<unknown>>();
 
 function walletClient(account: Address) {
   return createWalletClient({
@@ -79,6 +80,23 @@ function walletClient(account: Address) {
     chain: hardhat,
     transport: custom(requireEthereum()),
   });
+}
+
+async function withAccountWriteLock<T>(account: Address, action: () => Promise<T>) {
+  const key = account.toLowerCase();
+  const previous = accountWriteLocks.get(key) ?? Promise.resolve();
+
+  const current = previous
+    .catch(() => undefined)
+    .then(action)
+    .finally(() => {
+      if (accountWriteLocks.get(key) === current) {
+        accountWriteLocks.delete(key);
+      }
+    });
+
+  accountWriteLocks.set(key, current);
+  return current;
 }
 
 export async function readContract(args: {
@@ -103,38 +121,46 @@ export async function writeContract(args: {
   args?: readonly unknown[];
   value?: bigint;
 }) {
-  const client = walletClient(args.account);
-  const estimatedGas = await publicClient.estimateContractGas({
-    account: args.account,
-    address: args.address,
-    abi: args.abi,
-    functionName: args.functionName,
-    args: args.args ?? [],
-    // Avoid injected wallets using Hardhat's 21M fallback estimate, which is
-    // above the node's 16,777,216 per-transaction gas cap.
-    gas: LOCAL_TRANSACTION_GAS_LIMIT,
-    value: args.value,
-  } as any);
-  const gas = estimatedGas + estimatedGas / 5n + 10_000n;
+  return withAccountWriteLock(args.account, async () => {
+    const client = walletClient(args.account);
+    const estimatedGas = await publicClient.estimateContractGas({
+      account: args.account,
+      address: args.address,
+      abi: args.abi,
+      functionName: args.functionName,
+      args: args.args ?? [],
+      // Avoid injected wallets using Hardhat's 21M fallback estimate, which is
+      // above the node's 16,777,216 per-transaction gas cap.
+      gas: LOCAL_TRANSACTION_GAS_LIMIT,
+      value: args.value,
+    } as any);
+    const gas = estimatedGas + estimatedGas / 5n + 10_000n;
 
-  if (gas > HARDHAT_TX_GAS_CAP) {
-    throw new Error(`Estimated gas ${gas.toString()} exceeds the local Hardhat transaction cap`);
-  }
+    if (gas > HARDHAT_TX_GAS_CAP) {
+      throw new Error(`Estimated gas ${gas.toString()} exceeds the local Hardhat transaction cap`);
+    }
 
-  const hash = await client.writeContract({
-    account: args.account,
-    address: args.address,
-    abi: args.abi,
-    functionName: args.functionName,
-    args: args.args ?? [],
-    value: args.value,
-    gas,
-  } as any);
+    const nonce = await publicClient.getTransactionCount({
+      address: args.account,
+      blockTag: "pending",
+    });
 
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (receipt.status !== "success") {
-    throw new Error(`Transaction reverted: ${hash}`);
-  }
+    const hash = await client.writeContract({
+      account: args.account,
+      address: args.address,
+      abi: args.abi,
+      functionName: args.functionName,
+      args: args.args ?? [],
+      value: args.value,
+      gas,
+      nonce,
+    } as any);
 
-  return hash;
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== "success") {
+      throw new Error(`Transaction reverted: ${hash}`);
+    }
+
+    return hash;
+  });
 }

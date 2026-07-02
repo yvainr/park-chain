@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { CircleCheck, CircleUser, CircleX, Coins, LoaderCircle, RefreshCw, Wallet, X } from "lucide-react";
 import { type Address, type Hex, keccak256, parseAbiItem, parseEther, toBytes, zeroAddress } from "viem";
 import { membershipManagerAbi, operatorRegistryAbi, parkCreditAbi, parkingLedgerAbi, parkChainRouterAbi } from "./abi/contracts";
 import { StatusStrip } from "./components/shared-panels";
-import { Badge, Button } from "./components/ui";
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "./components/ui";
 import {
   connectWallet,
   getConnectedWallet,
@@ -47,6 +48,13 @@ type MembershipTierSummary = {
   priceWei: bigint;
 };
 
+type AppToast = {
+  description?: string;
+  id: number;
+  title: string;
+  variant: "loading" | "success" | "error";
+};
+
 function formatReadResult(result: unknown) {
   if (typeof result === "bigint") return result.toString();
   if (typeof result === "boolean") return String(result);
@@ -60,10 +68,50 @@ function formatReadResult(result: unknown) {
   return String(result ?? "");
 }
 
+function formatToastDescription(result: unknown) {
+  if (typeof result === "object" && result !== null) return "Operation completed.";
+  const formatted = formatReadResult(result).trim();
+  if (!formatted || formatted === "undefined") return "Operation completed.";
+  const firstLine = formatted.split("\n").find(Boolean) ?? formatted;
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
+}
+
+function ToastIcon({ variant }: { variant: AppToast["variant"] }) {
+  if (variant === "success") return <CircleCheck aria-hidden="true" size={18} />;
+  if (variant === "error") return <CircleX aria-hidden="true" size={18} />;
+  return <LoaderCircle aria-hidden="true" className="toast-spinner" size={18} />;
+}
+
+function ToastViewport({ dismissToast, toasts }: any) {
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="toast-viewport" aria-live="polite" aria-relevant="additions text">
+      {toasts.map((toast: AppToast) => (
+        <div key={toast.id} className={`toast-card toast-${toast.variant}`} role="status">
+          <div className="toast-icon">
+            <ToastIcon variant={toast.variant} />
+          </div>
+          <div className="toast-copy">
+            <strong>{toast.title}</strong>
+            {toast.description && <span>{toast.description}</span>}
+          </div>
+          <button type="button" className="toast-close" aria-label="Dismiss notification" onClick={() => dismissToast(toast.id)}>
+            <X aria-hidden="true" size={16} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function formatExpiry(value: unknown) {
   const expiry = typeof value === "bigint" ? value : BigInt(String(value || 0));
   if (expiry === 0n) return "0";
-  return `${expiry.toString()} (${new Date(Number(expiry) * 1000).toLocaleString()})`;
+  return new Date(Number(expiry) * 1000).toLocaleDateString("en-GB", {
+    timeZone: BERLIN_TIME_ZONE,
+    dateStyle: "medium",
+  });
 }
 
 function timeZoneOffsetMs(date: Date, timeZone: string) {
@@ -174,6 +222,10 @@ function roleTitle(role: UserRole) {
   if (role === "admin") return "Admin Console";
   if (role === "operator") return "Operator Workspace";
   return "Customer Portal";
+}
+
+function isConfiguredAddress(address: string) {
+  return Boolean(address && !/^0x0{40}$/i.test(address));
 }
 
 async function resolveOperatorIdForWallet(registry: Address, wallet: Address) {
@@ -293,6 +345,8 @@ export function App() {
   const [account, setAccount] = useState("");
   const [role, setRole] = useState<UserRole | null>(null);
   const [requestedRole, setRequestedRole] = useState<UserRole | null>(routeToRole());
+  const [isCustomerAccessOpen, setIsCustomerAccessOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
 
   const [creditAddress, setCreditAddress] = useState("");
   const [membershipAddress, setMembershipAddress] = useState("");
@@ -335,10 +389,15 @@ export function App() {
   const [gracePeriodMinutes, setGracePeriodMinutes] = useState("15");
 
   const [reservationId, setReservationId] = useState("0");
-  const [reservationSlotId, setReservationSlotId] = useState("1");
   const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
   const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
+  const [memberReservations, setMemberReservations] = useState<ReturnType<typeof parseReservation>[]>([]);
+  const [availableSlotPreview, setAvailableSlotPreview] = useState({
+    error: "",
+    loading: false,
+    slotId: "",
+  });
   const [slotCalendar, setSlotCalendar] = useState({
     capacity: "0",
     dateLabel: "",
@@ -359,6 +418,7 @@ export function App() {
   const [monthKey, setMonthKey] = useState("");
 
   const [output, setOutput] = useState("Resolving contract addresses from ParkChainRouter.");
+  const [toasts, setToasts] = useState<AppToast[]>([]);
   const [walletAccess, setWalletAccess] = useState({
     account: "",
     admin: false,
@@ -578,13 +638,50 @@ export function App() {
     };
   }, [account, registryAddress, requestedRole]);
 
+  function dismissToast(id: number) {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }
+
+  function showToast(toast: Omit<AppToast, "id"> & { id?: number }) {
+    const id = toast.id ?? Date.now() + Math.random();
+    setToasts((current) => [...current.filter((item) => item.id !== id), { ...toast, id }].slice(-4));
+    if (toast.variant !== "loading") {
+      window.setTimeout(() => dismissToast(id), 5200);
+    }
+    return id;
+  }
+
+  function updateToast(id: number, toast: Omit<AppToast, "id">) {
+    setToasts((current) => current.map((item) => (item.id === id ? { ...toast, id } : item)));
+    if (toast.variant !== "loading") {
+      window.setTimeout(() => dismissToast(id), 5200);
+    }
+  }
+
   async function run(label: string, action: () => Promise<unknown>) {
+    const toastId = showToast({
+      title: label,
+      description: "Waiting for wallet or network response.",
+      variant: "loading",
+    });
+
     try {
       setOutput(`${label}...`);
       const result = await action();
       setOutput(`${label} complete\n${formatReadResult(result)}`);
+      updateToast(toastId, {
+        title: `${label} complete`,
+        description: formatToastDescription(result),
+        variant: "success",
+      });
     } catch (error) {
-      setOutput(`${label} failed\n${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      setOutput(`${label} failed\n${message}`);
+      updateToast(toastId, {
+        title: `${label} failed`,
+        description: message.length > 120 ? `${message.slice(0, 117)}...` : message,
+        variant: "error",
+      });
     }
   }
 
@@ -657,6 +754,29 @@ export function App() {
     setSelectedReservation(reservation);
     setReservationId(reservation.id.toString());
     return result;
+  }
+
+  async function refreshMemberReservations() {
+    const ids = (await readContract({
+      address: requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "getMemberReservations",
+      args: [memberReadAddress()],
+    })) as readonly bigint[];
+
+    const reservations = await Promise.all(
+      ids.map((id) =>
+        readContract({
+          address: requireLedger(),
+          abi: parkingLedgerAbi,
+          functionName: "getReservation",
+          args: [id],
+        }).then(parseReservation),
+      ),
+    );
+
+    setMemberReservations(reservations.slice().reverse());
+    return reservations;
   }
 
   async function loadLatestMemberReservation() {
@@ -835,11 +955,6 @@ export function App() {
         reservations,
       });
 
-      if (capacity > 0n) {
-        const selectedSlot = BigInt(reservationSlotId || "0");
-        if (selectedSlot === 0n || selectedSlot > capacity) setReservationSlotId("1");
-      }
-
       return { capacity, slots, reservations };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -856,8 +971,45 @@ export function App() {
     }
   }
 
-  function selectCalendarSlot(slotID: bigint, startTime: bigint) {
-    setReservationSlotId(slotID.toString());
+  async function refreshAvailableSlotPreview() {
+    setAvailableSlotPreview((current) => ({ ...current, loading: true, error: "" }));
+
+    try {
+      const slotId = BigInt(
+        String(
+          await readContract({
+            address: requireLedger(),
+            abi: parkingLedgerAbi,
+            functionName: "getFirstAvailableSlot",
+            args: [
+              toUint(operatorId, "Operator ID"),
+              categoryHash,
+              berlinDateTimeToUnixSeconds(reservationStartTime),
+              toUint(reservationDuration, "Duration hours"),
+            ],
+          }),
+        ),
+      );
+
+      setAvailableSlotPreview({
+        error: slotId === 0n ? "No free slot for the selected time." : "",
+        loading: false,
+        slotId: slotId.toString(),
+      });
+
+      return slotId;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAvailableSlotPreview({
+        error: message,
+        loading: false,
+        slotId: "",
+      });
+      throw error;
+    }
+  }
+
+  function selectCalendarStartTime(startTime: bigint) {
     setReservationStartTime(formatBerlinDateTimeInput(Number(startTime)));
   }
 
@@ -876,6 +1028,17 @@ export function App() {
     void refreshSlotCalendar().catch(() => undefined);
   }, [role, registryAddress, ledgerAddress, operatorId, categoryHash, reservationStartTime.slice(0, 10)]);
 
+  useEffect(() => {
+    if (role !== "customer" || !ledgerAddress || !operatorId || !reservationStartTime || !reservationDuration) return;
+    void refreshAvailableSlotPreview().catch(() => undefined);
+  }, [role, ledgerAddress, operatorId, categoryHash, reservationStartTime, reservationDuration]);
+
+  useEffect(() => {
+    if (role !== "customer" || !account || !ledgerAddress) return;
+    if (String(memberSummary.active).toLowerCase() !== "true") return;
+    void refreshMemberReservations().catch(() => undefined);
+  }, [role, account, ledgerAddress, memberSummary.active]);
+
   function selectedCategoryHashes() {
     return CATEGORY_NAMES.filter((name) => selectedCategories[name]).map((name) => keccak256(toBytes(name)));
   }
@@ -893,6 +1056,19 @@ export function App() {
 
   const hasSelectedReservation =
     selectedReservation !== null && selectedReservation.member.toLowerCase() !== zeroAddress;
+  const accountLoaded = memberSummary.active !== "-";
+  const isMemberActive = String(memberSummary.active).toLowerCase() === "true";
+  const memberTier = membershipTiers.find((tier) => tier.id.toString() === memberSummary.tier);
+  const memberTierLabel = memberTier?.name ?? (accountLoaded ? "No plan" : "-");
+  const showPaidCustomerPanel = role === "customer" && isMemberActive;
+  const allSystemsConnected =
+    Boolean(account) &&
+    isConfiguredAddress(ROUTER_ADDRESS) &&
+    isConfiguredAddress(creditAddress) &&
+    isConfiguredAddress(membershipAddress) &&
+    isConfiguredAddress(registryAddress) &&
+    isConfiguredAddress(treasuryAddress) &&
+    isConfiguredAddress(ledgerAddress);
 
   const app = {
     account,
@@ -909,6 +1085,7 @@ export function App() {
     creditAddress,
     creditRate,
     customCategory,
+    isCustomerAccessOpen,
     ethToWei: parseEther,
     formatExpiry,
     gracePeriodMinutes,
@@ -919,6 +1096,7 @@ export function App() {
     loginAs,
     logout,
     memberReadAddress,
+    memberReservations,
     memberSummary,
     membershipAddress,
     membershipTiers,
@@ -937,19 +1115,21 @@ export function App() {
     canCheckOutReservation: hasSelectedReservation && selectedReservation?.status === 1,
     registryAddress,
     registeredOperators,
+    availableSlotPreview,
     requireCredit,
     requireLedger,
     requireMembership,
     requireRegistry,
     requireTreasury,
+    refreshAvailableSlotPreview,
     refreshRegisteredOperators,
     refreshMemberAccount,
+    refreshMemberReservations,
     refreshMembershipTiers,
     refreshSelectedReservation,
     refreshSlotCalendar,
     reservationDuration,
     reservationId,
-    reservationSlotId,
     reservationStatusLabel: hasSelectedReservation
       ? RESERVATION_STATUS_LABELS[selectedReservation.status] ?? `Status ${selectedReservation.status}`
       : "No reservation loaded",
@@ -963,7 +1143,7 @@ export function App() {
     role,
     routerAddress: ROUTER_ADDRESS,
     run,
-    selectCalendarSlot,
+    selectCalendarStartTime,
     selectedCategories,
     selectedCategoryHashes,
     setAllocator,
@@ -973,6 +1153,7 @@ export function App() {
     setCreditRate,
     setCustomCategory,
     setGracePeriodMinutes,
+    setIsCustomerAccessOpen,
     setMonthKey,
     setNoShowFee,
     setOperatorId,
@@ -983,7 +1164,6 @@ export function App() {
     setPricePerHour,
     setReservationDuration,
     setReservationId,
-    setReservationSlotId,
     setReservationStartTime,
     setSelectedCategories,
     setTierActive,
@@ -1008,35 +1188,157 @@ export function App() {
       (walletAccess.account.toLowerCase() !== account.toLowerCase() || walletAccess.pending),
   };
 
-  if (!role) return <LoginPage app={app} />;
+  if (!role) {
+    return (
+      <>
+        <LoginPage app={app} />
+        <ToastViewport dismissToast={dismissToast} toasts={toasts} />
+      </>
+    );
+  }
 
   return (
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
-          <Badge>ParkChain MVP</Badge>
+          <div className="hero-badge-row">
+            <Badge>ParkChain MVP</Badge>
+            {allSystemsConnected && (
+              <Badge variant="success">
+                <CircleCheck aria-hidden="true" size={16} />
+                <div>&nbsp;All systems connected</div>
+              </Badge>
+            )}
+          </div>
           <h1>{roleTitle(role)}</h1>
-          <p>
-            {role === "admin" && "Manage platform configuration, operators, memberships, and treasury settings."}
-            {role === "operator" &&
-              "Manage pricing, parking capacity, no-show fees, and earnings for your registered parking operation."}
-            {role === "customer" && "Buy memberships, reserve parking or charging, and track your monthly usage."}
-          </p>
+          {role !== "customer" && (
+            <p>
+              {role === "admin" && "Manage platform configuration, operators, memberships, and treasury settings."}
+              {role === "operator" &&
+                "Manage pricing, parking capacity, no-show fees, and earnings for your registered parking operation."}
+            </p>
+          )}
         </div>
-        <div className="hero-actions">
-          <Button variant="secondary" onClick={logout}>
-            Sign Out
-          </Button>
-          <Button onClick={() => run("Connect wallet", connect)}>
-            {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "Connect Wallet"}
-          </Button>
-        </div>
+        {showPaidCustomerPanel ? (
+          <div className="hero-account">
+            <div className="hero-account-summary">
+              <Coins aria-hidden="true" size={18} />
+              <div>
+                <span>Token balance</span>
+                <strong>{memberSummary.balance}</strong>
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              className="hero-account-trigger"
+              aria-haspopup="dialog"
+              aria-expanded={isAccountOpen}
+              aria-label="Open my account"
+              onClick={() => setIsAccountOpen((open) => !open)}
+            >
+              <CircleUser aria-hidden="true" size={22} />
+            </Button>
+          </div>
+        ) : (
+          <div className="hero-actions">
+            <Button variant="secondary" onClick={logout}>
+              Sign Out
+            </Button>
+            <Button onClick={() => run("Connect wallet", connect)}>
+              {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "Connect Wallet"}
+            </Button>
+          </div>
+        )}
       </section>
 
-      <StatusStrip app={app} />
+      {showPaidCustomerPanel && isAccountOpen && (
+        <>
+          <div
+            className="hero-account-backdrop"
+            role="presentation"
+            onClick={() => setIsAccountOpen(false)}
+          />
+          <Card className="hero-account-card" role="dialog" aria-label="My account">
+            <CardHeader>
+              <div className="customer-section-title">
+                <Wallet aria-hidden="true" size={18} />
+                <div>
+                  <CardTitle>My Account</CardTitle>
+                </div>
+              </div>
+              <div className="hero-account-card-actions">
+                <Button
+                  variant="secondary"
+                  className="icon-button-label"
+                  onClick={() => run("Refresh account", refreshMemberAccount)}
+                  aria-label="Refresh account"
+                >
+                  <RefreshCw aria-hidden="true" size={16} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="icon-button-label"
+                  onClick={() => setIsAccountOpen(false)}
+                  aria-label="Close my account"
+                >
+                  <X aria-hidden="true" size={16} />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="tab-panel">
+              <div className="top-account-balance">
+                <Coins aria-hidden="true" size={20} />
+                <div>
+                  <span>Token balance</span>
+                  <strong>{memberSummary.balance}</strong>
+                </div>
+              </div>
+              <div className="top-account-metrics">
+                <div>
+                  <span>Tier</span>
+                  <strong>{memberTierLabel}</strong>
+                </div>
+                <div>
+                  <span>Expiry</span>
+                  <strong>{memberSummary.expiry}</strong>
+                </div>
+              </div>
+              <div className="hero-account-wallet">
+                <span>Wallet address</span>
+                <button
+                  type="button"
+                  className="hero-account-wallet-value"
+                  onClick={() => account && navigator.clipboard?.writeText(account)}
+                  title="Copy wallet address"
+                >
+                  {account || "-"}
+                </button>
+              </div>
+              <div className="top-account-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setIsAccountOpen(false);
+                    setIsCustomerAccessOpen(true);
+                  }}
+                  aria-haspopup="dialog"
+                >
+                  Upgrade
+                </Button>
+                <Button className="hero-account-signout" onClick={logout}>
+                  Sign Out
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {!allSystemsConnected && <StatusStrip app={app} />}
       {role === "admin" && <AdminPage app={app} />}
       {role === "operator" && <OperatorPage app={app} />}
       {role === "customer" && <CustomerPage app={app} />}
+      <ToastViewport dismissToast={dismissToast} toasts={toasts} />
     </main>
   );
 }
