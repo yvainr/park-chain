@@ -52,6 +52,11 @@ contract ParkingLedger is Ownable {
         uint256 slotID;
     }
 
+    struct OperatorRating {
+        uint256 totalStars;
+        uint256 ratingCount;
+    }
+
     IParkingMembershipManager public immutable membershipManager;
     IParkingOperatorRegistry public immutable operatorRegistry;
     IParkingParkCredit public immutable parkCredit;
@@ -65,6 +70,8 @@ contract ParkingLedger is Ownable {
     mapping(uint256 => mapping(bytes32 => mapping(uint256 => uint256[]))) private slotReservations;
     mapping(address => mapping(bytes32 => mapping(uint256 => uint256))) private usedHoursByCategory;
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private usedHoursByOperator;
+    mapping(uint256 => OperatorRating) public operatorRatings;
+    mapping(uint256 => bool) public reservationRated;
 
     event ReservationCreated(
         uint256 indexed reservationID,
@@ -453,5 +460,28 @@ contract ParkingLedger is Ownable {
         }
 
         return true;
+    }
+
+    function rateReservation(uint256 reservationID, uint8 stars) external {
+        Reservation storage reservation = reservations[reservationID];
+        require(stars >= 1 && stars <= 5, "ParkingLedger: invalid rating");
+        require(reservation.member == msg.sender, "ParkingLedger: not member");
+        require(reservation.status == ReservationStatus.CheckedOut, "ParkingLedger: Reservation not checked out");
+        require(!reservationRated[reservation.reservationID], "ParkingLedger: Already rated");
+
+        operatorRatings[reservation.operatorID].totalStars += stars;
+        operatorRatings[reservation.operatorID].ratingCount++;
+
+        reservationRated[reservation.reservationID] = true;
+    }
+
+    function calcAvgRating(uint256 operatorID) external view returns (uint256){
+        OperatorRating memory rating = operatorRatings[operatorID];
+
+        if (rating.ratingCount == 0) {
+            return 0;
+        }
+        
+        return rating.totalStars * 100 / rating.ratingCount;
     }
 }
