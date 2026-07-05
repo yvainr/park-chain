@@ -61,14 +61,22 @@ Responsibilities:
 - Tracks used hours by category and by operator for a simple `timestamp / 30 days` month key.
 - Charges ParkCredits on check-in, overstay, and no-show.
 - Allocates operator earnings through `OperatorTreasury`.
+- Records one 1-5 member rating per checked-out reservation and exposes operator average ratings scaled by 100.
 
 Lifecycle:
 
 1. Reserve a slot after membership, operator, category, overlap, and cap validation.
 2. Check in at or after reservation start and charge reserved-duration credits.
 3. Check out and charge rounded-up overstay hours only beyond the grace period.
-4. Cancel before start for free and release reserved monthly usage.
-5. Cancel after start or mark a missed reservation as no-show, charge the no-show fee, and release reserved monthly usage.
+4. Optionally submit the parking-experience rating during checkout through `checkOutWithRating`, or rate the checked-out reservation later with `rateReservation`.
+5. Cancel before start for free and release reserved monthly usage.
+6. Cancel after start or mark a missed reservation as no-show, charge the no-show fee, and release reserved monthly usage.
+
+Rating reads:
+
+- `operatorRatings(operatorID)` returns total stars and rating count.
+- `calcAvgRating(operatorID)` returns the average rating multiplied by 100, so `450` means `4.50 / 5`.
+- `reservationRated(reservationID)` prevents duplicate ratings for the same parking experience.
 
 ### OperatorTreasury
 

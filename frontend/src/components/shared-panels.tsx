@@ -36,43 +36,59 @@ function ConnectionBadge({ connected, connectedLabel, disconnectedLabel }: any) 
 }
 
 export function StatusStrip({ app }: any) {
+  const connectionItems = [
+    {
+      connected: Boolean(app.account),
+      connectedLabel: "Wallet connected",
+      disconnectedLabel: "Wallet disconnected",
+    },
+    {
+      connected: isConfigured(app.routerAddress),
+      connectedLabel: "Router configured",
+      disconnectedLabel: "Router missing",
+    },
+    {
+      connected: isConfigured(app.creditAddress),
+      connectedLabel: "ParkCredit resolved",
+      disconnectedLabel: "ParkCredit missing",
+    },
+    {
+      connected: isConfigured(app.membershipAddress),
+      connectedLabel: "Membership resolved",
+      disconnectedLabel: "Membership missing",
+    },
+    {
+      connected: isConfigured(app.registryAddress),
+      connectedLabel: "Registry resolved",
+      disconnectedLabel: "Registry missing",
+    },
+    {
+      connected: isConfigured(app.treasuryAddress),
+      connectedLabel: "Treasury resolved",
+      disconnectedLabel: "Treasury missing",
+    },
+    {
+      connected: isConfigured(app.ledgerAddress),
+      connectedLabel: "Ledger resolved",
+      disconnectedLabel: "Ledger missing",
+    },
+  ];
+  const missingItems = connectionItems.filter((item) => !item.connected);
+
   return (
     <div className="status-strip" aria-label="Connection status">
-      <ConnectionBadge
-        connected={Boolean(app.account)}
-        connectedLabel="Wallet connected"
-        disconnectedLabel="Wallet disconnected"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.routerAddress)}
-        connectedLabel="Router configured"
-        disconnectedLabel="Router missing"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.creditAddress)}
-        connectedLabel="ParkCredit resolved"
-        disconnectedLabel="ParkCredit missing"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.membershipAddress)}
-        connectedLabel="Membership resolved"
-        disconnectedLabel="Membership missing"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.registryAddress)}
-        connectedLabel="Registry resolved"
-        disconnectedLabel="Registry missing"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.treasuryAddress)}
-        connectedLabel="Treasury resolved"
-        disconnectedLabel="Treasury missing"
-      />
-      <ConnectionBadge
-        connected={isConfigured(app.ledgerAddress)}
-        connectedLabel="Ledger resolved"
-        disconnectedLabel="Ledger missing"
-      />
+      {missingItems.length === 0 ? (
+        <ConnectionBadge connected connectedLabel="All systems connected" disconnectedLabel="" />
+      ) : (
+        missingItems.map((item) => (
+          <ConnectionBadge
+            key={item.disconnectedLabel}
+            connected={false}
+            connectedLabel={item.connectedLabel}
+            disconnectedLabel={item.disconnectedLabel}
+          />
+        ))
+      )}
     </div>
   );
 }

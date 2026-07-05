@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { operatorRegistryAbi, operatorTreasuryAbi } from "../abi/contracts";
+import { operatorRegistryAbi, operatorTreasuryAbi, parkingLedgerAbi } from "../abi/contracts";
 import { ContractPanel, OutputPanel, SharedFields } from "../components/shared-panels";
 import {
   Badge,
@@ -28,6 +28,8 @@ type OperatorCategorySetting = {
 
 export function OperatorPage({ app }: any) {
   const [categorySettings, setCategorySettings] = useState<Record<string, OperatorCategorySetting>>({});
+  const [averageRating, setAverageRating] = useState("-");
+  const [ratingCount, setRatingCount] = useState("0");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
 
@@ -43,6 +45,20 @@ export function OperatorPage({ app }: any) {
         functionName: "getNoShowFee",
         args: [operatorId],
       });
+      const [averageRatingRaw, ratingRaw] = await Promise.all([
+        readContract({
+          address: app.requireLedger(),
+          abi: parkingLedgerAbi,
+          functionName: "calcAvgRating",
+          args: [operatorId],
+        }),
+        readContract({
+          address: app.requireLedger(),
+          abi: parkingLedgerAbi,
+          functionName: "operatorRatings",
+          args: [operatorId],
+        }),
+      ]);
       const entries = await Promise.all(
         app.categoryNames.map(async (name: string) => {
           const categoryHash = app.categoryHashForName(name);
@@ -78,8 +94,10 @@ export function OperatorPage({ app }: any) {
       );
 
       app.setNoShowFee(String(noShowFee));
+      setAverageRating(`${(Number(averageRatingRaw) / 100).toFixed(2)} / 5`);
+      setRatingCount(String((ratingRaw as any).ratingCount ?? (ratingRaw as any)[1] ?? 0));
       setCategorySettings(Object.fromEntries(entries));
-      return { noShowFee, categories: Object.fromEntries(entries) };
+      return { noShowFee, averageRating: averageRatingRaw, rating: ratingRaw, categories: Object.fromEntries(entries) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsError(message);
@@ -236,6 +254,11 @@ export function OperatorPage({ app }: any) {
             <CardDescription>Review operator setup, accumulated credits, and payout configuration.</CardDescription>
           </CardHeader>
           <CardContent className="read-grid">
+            <div className="operator-rating-summary">
+              <span>Average rating</span>
+              <strong>{averageRating}</strong>
+              <small>{ratingCount} ratings</small>
+            </div>
             <Button
               variant="secondary"
               onClick={() =>
@@ -280,6 +303,33 @@ export function OperatorPage({ app }: any) {
               }
             >
               Get Earnings
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                app.run("Average rating", async () => {
+                  const operatorId = toUint(app.operatorId, "Operator ID");
+                  const [averageRatingRaw, ratingRaw] = await Promise.all([
+                    readContract({
+                      address: app.requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "calcAvgRating",
+                      args: [operatorId],
+                    }),
+                    readContract({
+                      address: app.requireLedger(),
+                      abi: parkingLedgerAbi,
+                      functionName: "operatorRatings",
+                      args: [operatorId],
+                    }),
+                  ]);
+                  setAverageRating(`${(Number(averageRatingRaw) / 100).toFixed(2)} / 5`);
+                  setRatingCount(String((ratingRaw as any).ratingCount ?? (ratingRaw as any)[1] ?? 0));
+                  return { averageRating: averageRatingRaw, rating: ratingRaw };
+                })
+              }
+            >
+              Get Rating
             </Button>
             <Button
               variant="secondary"

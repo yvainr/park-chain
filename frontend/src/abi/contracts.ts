@@ -438,6 +438,16 @@ export const parkingLedgerAbi = [
   },
   {
     type: "function",
+    name: "checkOutWithRating",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "reservationID", type: "uint256" },
+      { name: "stars", type: "uint8" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "markNoShow",
     stateMutability: "nonpayable",
     inputs: [{ name: "reservationID", type: "uint256" }],
@@ -544,6 +554,40 @@ export const parkingLedgerAbi = [
     stateMutability: "pure",
     inputs: [{ name: "timestamp", type: "uint256" }],
     outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "rateReservation",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "reservationID", type: "uint256" },
+      { name: "stars", type: "uint8" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "calcAvgRating",
+    stateMutability: "view",
+    inputs: [{ name: "operatorID", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "operatorRatings",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [
+      { name: "totalStars", type: "uint256" },
+      { name: "ratingCount", type: "uint256" },
+    ],
+  },
+  {
+    type: "function",
+    name: "reservationRated",
+    stateMutability: "view",
+    inputs: [{ name: "", type: "uint256" }],
+    outputs: [{ name: "", type: "bool" }],
   },
 ] as const;
 

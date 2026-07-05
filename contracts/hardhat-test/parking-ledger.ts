@@ -347,6 +347,60 @@ describe("ParkingLedger", function () {
     assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 20n);
   });
 
+  it("checks out with a rating and reports operator average rating", async function () {
+    const { ledger, membership, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 2n);
+
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.checkIn([reservationId], { account: member.account });
+    await networkHelpers.time.increaseTo(startTime + 2n * HOUR);
+    await ledger.write.checkOutWithRating([reservationId, 5], { account: member.account });
+
+    const reservation = await ledger.read.getReservation([reservationId]);
+    const rating = await ledger.read.operatorRatings([OPERATOR_ID]);
+
+    assert.equal(reservation.status, 2);
+    assert.equal(await ledger.read.reservationRated([reservationId]), true);
+    assert.equal(rating[0], 5n);
+    assert.equal(rating[1], 1n);
+    assert.equal(await ledger.read.calcAvgRating([OPERATOR_ID]), 500n);
+  });
+
+  it("allows rating after checkout but rejects invalid and duplicate ratings", async function () {
+    const { ledger, membership, member } = await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 1n);
+
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.checkIn([reservationId], { account: member.account });
+
+    await viem.assertions.revertWith(
+      ledger.write.checkOutWithRating([reservationId, 0], { account: member.account }),
+      "ParkingLedger: invalid rating",
+    );
+
+    await ledger.write.checkOut([reservationId], { account: member.account });
+    await ledger.write.rateReservation([reservationId, 4], { account: member.account });
+
+    await viem.assertions.revertWith(
+      ledger.write.rateReservation([reservationId, 3], { account: member.account }),
+      "ParkingLedger: Already rated",
+    );
+    await viem.assertions.revertWith(
+      ledger.write.checkOutWithRating([reservationId, 5], { account: member.account }),
+      "ParkingLedger: invalid status",
+    );
+
+    assert.equal(await ledger.read.calcAvgRating([OPERATOR_ID]), 400n);
+  });
+
   it("charges rounded overstay fees after grace period", async function () {
     const { ledger, membership, credit, treasury, member } = await networkHelpers.loadFixture(deploySystemFixture);
     const now = BigInt(await networkHelpers.time.latest());
