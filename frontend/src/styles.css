@@ -711,6 +711,8 @@ p {
 .ui-input,
 .ui-select {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -731,6 +733,8 @@ p {
 
 .ui-select-trigger {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 40px;
   display: flex;
   align-items: center;
@@ -1918,6 +1922,56 @@ pre {
   padding-inline: 12px;
 }
 
+.customer-reservation-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.customer-reservation-progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.customer-reservation-progress-copy span,
+.customer-reservation-progress small {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.customer-reservation-progress-copy strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.1;
+}
+
+.customer-reservation-progress-copy strong.is-compact {
+  font-size: 14px;
+}
+
+.customer-reservation-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.customer-reservation-progress-track span {
+  width: var(--reservation-progress);
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #b7cbbd, #8fb5a0);
+  transition: width 900ms linear;
+}
+
 .customer-reservation-actions {
   display: grid;
   grid-template-columns: 1fr;
@@ -2030,6 +2084,18 @@ pre {
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes customer-reservation-priority-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
   }
 
   to {
@@ -2160,6 +2226,28 @@ pre {
 
   .customer-booking-grid {
     grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .customer-flow.has-reservation-priority .customer-side-stack {
+    order: -1;
+  }
+
+  .customer-flow.has-reservation-priority .customer-current-reservation-card {
+    animation: customer-reservation-priority-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .customer-booking-grid .ui-input,
+  .customer-booking-grid .ui-select-trigger {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .customer-booking-grid .ui-input[type="datetime-local"] {
+    -webkit-appearance: none;
+    appearance: none;
+    inline-size: 100%;
+    min-inline-size: 0;
   }
 
   .customer-booking-grid .ui-label:nth-child(1),

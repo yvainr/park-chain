@@ -1164,6 +1164,7 @@ export function App() {
     run,
     selectCalendarStartTime,
     selectedCategories,
+    selectedReservation,
     selectedReservationRated,
     selectedCategoryHashes,
     setAllocator,
