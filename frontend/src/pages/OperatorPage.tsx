@@ -9,8 +9,14 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Table,
   TableBody,
   TableCell,
@@ -227,6 +233,48 @@ export function OperatorPage({ app }: any) {
                 Save Category Settings
               </Button>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Parking Place Availability</CardTitle>
+            <CardDescription>Temporarily remove individual places from customer selection.</CardDescription>
+          </CardHeader>
+          <CardContent className="tab-panel">
+            <div className="grid two">
+              <Label>
+                <span>Category</span>
+                <Select value={app.categoryName} onValueChange={app.setCategoryName}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {app.categoryNames.map((name: string) => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Label>
+              <Label>
+                <span>Slot number</span>
+                <Input min="1" type="number" value={app.managedSlotId}
+                  onChange={(event: any) => app.setManagedSlotId(event.target.value)} />
+              </Label>
+              <Label className="checkbox-label">
+                <Checkbox checked={app.managedSlotAvailable}
+                  onChange={(event: any) => app.setManagedSlotAvailable(event.target.checked)} />
+                <span>Available for reservation</span>
+              </Label>
+            </div>
+            <Button onClick={() => app.run("Set parking place availability", () =>
+              app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
+                toUint(app.operatorId, "Operator ID"),
+                app.categoryHash,
+                toUint(app.managedSlotId, "Slot number"),
+                app.managedSlotAvailable,
+              ])
+            )}>
+              Save Place Availability
+            </Button>
           </CardContent>
         </Card>
 

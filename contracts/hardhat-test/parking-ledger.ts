@@ -205,6 +205,65 @@ describe("ParkingLedger", function () {
     assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 2n]), 0n);
   });
 
+  it("skips slots disabled by the admin and rejects selecting them directly", async function () {
+    const { ledger, membership, registry, deployer, member } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 3n]);
+    await registry.write.setSlotAvailable([OPERATOR_ID, STANDARD, 1n, false], { account: deployer.account });
+    await purchaseMembership(membership, member);
+
+    assert.equal(await registry.read.isSlotEnabled([OPERATOR_ID, STANDARD, 1n]), false);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, startTime, 1n]), false);
+    assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 1n]), 2n);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserveSlot([OPERATOR_ID, STANDARD, 1n, startTime, 1n], { account: member.account }),
+      "ParkingLedger: slot disabled",
+    );
+
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 1n);
+    assert.equal((await ledger.read.getReservation([reservationId])).slotID, 2n);
+  });
+
+  it("returns enabled slots and active reservations for a calendar range in one read", async function () {
+    const { ledger, membership, registry, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const dayStart = now + HOUR;
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 3n]);
+    await registry.write.setSlotAvailable([OPERATOR_ID, STANDARD, 3n, false]);
+    await purchaseMembership(membership, member);
+    await purchaseMembership(membership, secondMember);
+
+    const activeId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, dayStart + HOUR, 2n);
+    const cancelledId = await reserveSlot(
+      ledger,
+      secondMember,
+      OPERATOR_ID,
+      STANDARD,
+      2n,
+      dayStart + 4n * HOUR,
+      1n,
+    );
+    await ledger.write.cancelReservation([cancelledId], { account: secondMember.account });
+
+    const [capacity, enabledSlots, schedule] = await ledger.read.getCategorySchedule([
+      OPERATOR_ID,
+      STANDARD,
+      dayStart,
+      dayStart + 24n * HOUR,
+    ]);
+
+    assert.equal(capacity, 3n);
+    assert.deepEqual(enabledSlots, [1n, 2n]);
+    assert.equal(schedule.length, 1);
+    assert.equal(schedule[0].reservationID, activeId);
+  });
+
   it("rejects inactive members, unsupported categories, removed operators, and expired memberships", async function () {
     const { ledger, membership, registry, member } = await networkHelpers.loadFixture(deploySystemFixture);
     const now = BigInt(await networkHelpers.time.latest());

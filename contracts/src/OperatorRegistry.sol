@@ -24,9 +24,16 @@ contract OperatorRegistry {
     mapping(uint256 => mapping(bytes32 => uint256)) public pricePerHour;
     mapping(uint256 => uint256) public noShowFee;
     mapping(uint256 => mapping(bytes32 => uint256)) private categoryCapacity;
+    mapping(uint256 => mapping(bytes32 => mapping(uint256 => bool))) private unavailableSlots;
 
     event OperatorRegistered(uint256 indexed operatorId, address indexed wallet, string name);
     event OperatorRemoved(uint256 indexed operatorId);
+    event SlotAvailabilityUpdated(
+        uint256 indexed operatorId,
+        bytes32 indexed category,
+        uint256 indexed slotId,
+        bool available
+    );
 
     modifier onlyOwner() {
         require(msg.sender == owner, "OperatorRegistry: not owner");
@@ -196,5 +203,30 @@ contract OperatorRegistry {
 
     function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns(uint256) {
         return categoryCapacity[operatorID][category];
+    }
+
+    function setSlotAvailable(
+        uint256 operatorID,
+        bytes32 category,
+        uint256 slotID,
+        bool available
+    ) external onlyOwnerOrOperatorWallet(operatorID) {
+        require(operators[operatorID].whitelisted, "OperatorRegistry: not whitelisted");
+        require(supportedCategories[operatorID][category], "OperatorRegistry: unsupported category");
+        require(slotID > 0, "OperatorRegistry: invalid slot");
+        require(slotID <= categoryCapacity[operatorID][category], "OperatorRegistry: slot out of range");
+
+        unavailableSlots[operatorID][category][slotID] = !available;
+        emit SlotAvailabilityUpdated(operatorID, category, slotID, available);
+    }
+
+    function isSlotEnabled(
+        uint256 operatorID,
+        bytes32 category,
+        uint256 slotID
+    ) external view returns (bool) {
+        return slotID > 0
+            && slotID <= categoryCapacity[operatorID][category]
+            && !unavailableSlots[operatorID][category][slotID];
     }
 }

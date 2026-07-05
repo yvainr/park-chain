@@ -14,6 +14,7 @@ interface IParkingOperatorRegistry {
     function getPricePerHour(uint256 operatorId, bytes32 category) external view returns (uint256);
     function getNoShowFee(uint256 operatorId) external view returns (uint256);
     function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns (uint256);
+    function isSlotEnabled(uint256 operatorID, bytes32 category, uint256 slotID) external view returns (bool);
 }
 
 interface IParkingParkCredit {
@@ -67,6 +68,8 @@ contract ParkingLedger is Ownable {
 
     mapping(uint256 => Reservation) private reservations;
     mapping(address => uint256[]) private memberReservations;
+    mapping(address => mapping(uint256 => mapping(bytes32 => uint256[]))) private memberContextReservations;
+    mapping(uint256 => mapping(bytes32 => uint256[])) private categoryReservations;
     mapping(uint256 => mapping(bytes32 => mapping(uint256 => uint256[]))) private slotReservations;
     mapping(address => mapping(bytes32 => mapping(uint256 => uint256))) private usedHoursByCategory;
     mapping(address => mapping(uint256 => mapping(uint256 => uint256))) private usedHoursByOperator;
@@ -156,6 +159,10 @@ contract ParkingLedger is Ownable {
             return false;
         }
 
+        if (!operatorRegistry.isSlotEnabled(operatorID, category, slotID)) {
+            return false;
+        }
+
         return _isSlotAvailable(operatorID, category, slotID, startTime, duration);
     }
 
@@ -178,6 +185,48 @@ contract ParkingLedger is Ownable {
         }
 
         return _firstAvailableSlot(operatorID, category, startTime, duration);
+    }
+
+    function getCategorySchedule(
+        uint256 operatorID,
+        bytes32 category,
+        uint256 fromTime,
+        uint256 toTime
+    ) external view returns (
+        uint256 capacity,
+        uint256[] memory enabledSlotIDs,
+        Reservation[] memory scheduledReservations
+    ) {
+        require(toTime > fromTime, "ParkingLedger: invalid schedule range");
+
+        capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
+        uint256 enabledCount;
+        for (uint256 slotID = 1; slotID <= capacity; slotID++) {
+            if (operatorRegistry.isSlotEnabled(operatorID, category, slotID)) enabledCount++;
+        }
+
+        enabledSlotIDs = new uint256[](enabledCount);
+        uint256 enabledIndex;
+        for (uint256 slotID = 1; slotID <= capacity; slotID++) {
+            if (operatorRegistry.isSlotEnabled(operatorID, category, slotID)) {
+                enabledSlotIDs[enabledIndex++] = slotID;
+            }
+        }
+
+        uint256[] storage categoryIDs = categoryReservations[operatorID][category];
+        uint256 reservationCount;
+        for (uint256 i = 0; i < categoryIDs.length; i++) {
+            if (_isInSchedule(reservations[categoryIDs[i]], fromTime, toTime)) reservationCount++;
+        }
+
+        scheduledReservations = new Reservation[](reservationCount);
+        uint256 reservationIndex;
+        for (uint256 i = 0; i < categoryIDs.length; i++) {
+            Reservation storage reservation = reservations[categoryIDs[i]];
+            if (_isInSchedule(reservation, fromTime, toTime)) {
+                scheduledReservations[reservationIndex++] = reservation;
+            }
+        }
     }
 
     function _validateReservation(
@@ -233,6 +282,8 @@ contract ParkingLedger is Ownable {
         });
 
         memberReservations[msg.sender].push(reservationID);
+        memberContextReservations[msg.sender][operatorID][category].push(reservationID);
+        categoryReservations[operatorID][category].push(reservationID);
         slotReservations[operatorID][category][slotID].push(reservationID);
 
         emit ReservationCreated(reservationID, msg.sender, operatorID, category);
@@ -378,16 +429,12 @@ contract ParkingLedger is Ownable {
         uint256 duration
     ) private view returns (bool) {
         uint256 endTime = startTime + (duration * 1 hours);
-        uint256[] memory reservationIDs = memberReservations[member];
+        uint256[] storage reservationIDs = memberContextReservations[member][operatorID][category];
 
         for (uint256 i = 0; i < reservationIDs.length; i++) {
             Reservation storage existing = reservations[reservationIDs[i]];
 
             if (!_isActiveForOverlap(existing.status)) {
-                continue;
-            }
-
-            if (existing.operatorID != operatorID || existing.category != category) {
                 continue;
             }
 
@@ -398,6 +445,16 @@ contract ParkingLedger is Ownable {
         }
 
         return false;
+    }
+
+    function _isInSchedule(
+        Reservation storage reservation,
+        uint256 fromTime,
+        uint256 toTime
+    ) private view returns (bool) {
+        if (!_isActiveForOverlap(reservation.status)) return false;
+        uint256 reservationEnd = reservation.startTime + (reservation.duration * 1 hours);
+        return reservation.startTime < toTime && reservationEnd > fromTime;
     }
 
     function _isActiveForOverlap(ReservationStatus status) private pure returns (bool) {
@@ -417,6 +474,7 @@ contract ParkingLedger is Ownable {
 
         uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
         require(slotID <= capacity, "ParkingLedger: slot out of range");
+        require(operatorRegistry.isSlotEnabled(operatorID, category, slotID), "ParkingLedger: slot disabled");
     }
 
     function _firstAvailableSlot(
@@ -428,7 +486,10 @@ contract ParkingLedger is Ownable {
         uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
 
         for (uint256 slotID = 1; slotID <= capacity; slotID++) {
-            if (_isSlotAvailable(operatorID, category, slotID, startTime, duration)) {
+            if (
+                operatorRegistry.isSlotEnabled(operatorID, category, slotID)
+                    && _isSlotAvailable(operatorID, category, slotID, startTime, duration)
+            ) {
                 return slotID;
             }
         }

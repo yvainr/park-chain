@@ -412,6 +412,46 @@ export function AdminPage({ app }: any) {
                 </Button>
               </div>
             </section>
+
+            <section className="operator-action-block">
+              <div className="operator-action-heading">
+                <h3>Parking place availability</h3>
+                <p>Disable individual places that must not appear in member booking choices.</p>
+              </div>
+              <div className="grid two">
+                <Label>
+                  <span>Category</span>
+                  <Select value={app.categoryName} onValueChange={app.setCategoryName}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {app.categoryNames.map((name: string) => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
+                <Label>
+                  <span>Slot number</span>
+                  <Input min="1" type="number" value={app.managedSlotId}
+                    onChange={(event: any) => app.setManagedSlotId(event.target.value)} />
+                </Label>
+                <Label className="checkbox-label">
+                  <Checkbox checked={app.managedSlotAvailable}
+                    onChange={(event: any) => app.setManagedSlotAvailable(event.target.checked)} />
+                  <span>Available for reservation</span>
+                </Label>
+              </div>
+              <Button onClick={() => app.run("Set parking place availability", () =>
+                app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
+                  toUint(app.operatorForCategoryId, "Active operator"),
+                  app.categoryHash,
+                  toUint(app.managedSlotId, "Slot number"),
+                  app.managedSlotAvailable,
+                ])
+              )}>
+                Save Place Availability
+              </Button>
+            </section>
           </CardContent>
         </Card>
 

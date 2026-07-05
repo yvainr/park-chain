@@ -326,6 +326,29 @@ export const operatorRegistryAbi = [
   },
   {
     type: "function",
+    name: "setSlotAvailable",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "operatorId", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "slotId", type: "uint256" },
+      { name: "available", type: "bool" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "isSlotEnabled",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorId", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "slotId", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+  {
+    type: "function",
     name: "getOperatorWallet",
     stateMutability: "view",
     inputs: [{ name: "operatorId", type: "uint256" }],
@@ -478,6 +501,36 @@ export const parkingLedgerAbi = [
       { name: "duration", type: "uint256" },
     ],
     outputs: [{ name: "slotID", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getCategorySchedule",
+    stateMutability: "view",
+    inputs: [
+      { name: "operatorID", type: "uint256" },
+      { name: "category", type: "bytes32" },
+      { name: "fromTime", type: "uint256" },
+      { name: "toTime", type: "uint256" },
+    ],
+    outputs: [
+      { name: "capacity", type: "uint256" },
+      { name: "enabledSlotIDs", type: "uint256[]" },
+      {
+        name: "scheduledReservations",
+        type: "tuple[]",
+        components: [
+          { name: "reservationID", type: "uint256" },
+          { name: "member", type: "address" },
+          { name: "operatorID", type: "uint256" },
+          { name: "category", type: "bytes32" },
+          { name: "startTime", type: "uint256" },
+          { name: "duration", type: "uint256" },
+          { name: "checkInTime", type: "uint256" },
+          { name: "status", type: "uint8" },
+          { name: "slotID", type: "uint256" },
+        ],
+      },
+    ],
   },
   {
     type: "function",
