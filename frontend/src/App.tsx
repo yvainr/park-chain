@@ -392,6 +392,9 @@ export function App() {
   const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
   const [checkoutRating, setCheckoutRating] = useState("5");
+  const [selectedSlotId, setSelectedSlotId] = useState("");
+  const [managedSlotId, setManagedSlotId] = useState("1");
+  const [managedSlotAvailable, setManagedSlotAvailable] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
   const [selectedReservationRated, setSelectedReservationRated] = useState(false);
   const [memberReservations, setMemberReservations] = useState<ReturnType<typeof parseReservation>[]>([]);
@@ -916,46 +919,19 @@ export function App() {
     setSlotCalendar((current) => ({ ...current, loading: true, error: "" }));
 
     try {
-      const capacity = BigInt(
-        String(
-          await readContract({
-            address: requireRegistry(),
-            abi: operatorRegistryAbi,
-            functionName: "getCategoryCapacity",
-            args: [operator, category],
-          }),
-        ),
-      );
-      const slots = Array.from({ length: Number(capacity) }, (_value, index) => BigInt(index + 1));
-      const reservationIdGroups = await Promise.all(
-        slots.map((slotID) =>
-          readContract({
-            address: requireLedger(),
-            abi: parkingLedgerAbi,
-            functionName: "getSlotReservations",
-            args: [operator, category, slotID],
-          }) as Promise<readonly bigint[]>,
-        ),
-      );
-      const reservationIDs = [...new Set(reservationIdGroups.flat().map((id) => id.toString()))].map(BigInt);
-      const reservations = (
-        await Promise.all(
-          reservationIDs.map(async (id) =>
-            parseReservation(
-              await readContract({
-                address: requireLedger(),
-                abi: parkingLedgerAbi,
-                functionName: "getReservation",
-                args: [id],
-              }),
-            ),
-          ),
-        )
-      )
-        .filter((reservation) => {
-          const endTime = reservation.startTime + reservation.duration * HOUR_SECONDS;
-          return reservation.status <= 1 && reservation.startTime < dayEnd && endTime > dayStart;
-        })
+      const schedule = await readContract({
+        address: requireLedger(),
+        abi: parkingLedgerAbi,
+        functionName: "getCategorySchedule",
+        args: [operator, category, dayStart, dayEnd],
+      }) as any;
+      const capacity = BigInt(schedule.capacity ?? schedule[0] ?? 0);
+      const slots = [...(schedule.enabledSlotIDs ?? schedule[1] ?? [])].map(BigInt);
+      if (!slots.some((slotID) => slotID.toString() === selectedSlotId)) {
+        setSelectedSlotId(slots[0]?.toString() ?? "");
+      }
+      const reservations = [...(schedule.scheduledReservations ?? schedule[2] ?? [])]
+        .map(parseReservation)
         .sort((left, right) =>
           left.slotID === right.slotID
             ? Number(left.startTime - right.startTime)
@@ -992,21 +968,24 @@ export function App() {
     setAvailableSlotPreview((current) => ({ ...current, loading: true, error: "" }));
 
     try {
-      const slotId = BigInt(
-        String(
-          await readContract({
-            address: requireLedger(),
-            abi: parkingLedgerAbi,
-            functionName: "getFirstAvailableSlot",
-            args: [
-              toUint(operatorId, "Operator ID"),
-              categoryHash,
-              berlinDateTimeToUnixSeconds(reservationStartTime),
-              toUint(reservationDuration, "Duration hours"),
-            ],
-          }),
-        ),
-      );
+      const slotId = selectedSlotId
+        ? (Boolean(
+            await readContract({
+              address: requireLedger(),
+              abi: parkingLedgerAbi,
+              functionName: "isSlotAvailable",
+              args: [
+                toUint(operatorId, "Operator ID"),
+                categoryHash,
+                toUint(selectedSlotId, "Parking place"),
+                berlinDateTimeToUnixSeconds(reservationStartTime),
+                toUint(reservationDuration, "Duration hours"),
+              ],
+            }),
+          )
+            ? toUint(selectedSlotId, "Parking place")
+            : 0n)
+        : 0n;
 
       setAvailableSlotPreview({
         error: slotId === 0n ? "No free slot for the selected time." : "",
@@ -1026,8 +1005,9 @@ export function App() {
     }
   }
 
-  function selectCalendarStartTime(startTime: bigint) {
+  function selectCalendarStartTime(startTime: bigint, slotId?: bigint) {
     setReservationStartTime(formatBerlinDateTimeInput(Number(startTime)));
+    if (slotId) setSelectedSlotId(slotId.toString());
   }
 
   useEffect(() => {
@@ -1048,7 +1028,7 @@ export function App() {
   useEffect(() => {
     if (role !== "customer" || !ledgerAddress || !operatorId || !reservationStartTime || !reservationDuration) return;
     void refreshAvailableSlotPreview().catch(() => undefined);
-  }, [role, ledgerAddress, operatorId, categoryHash, reservationStartTime, reservationDuration]);
+  }, [role, ledgerAddress, operatorId, categoryHash, selectedSlotId, reservationStartTime, reservationDuration]);
 
   useEffect(() => {
     if (role !== "customer" || !account || !ledgerAddress) return;
@@ -1114,6 +1094,8 @@ export function App() {
     logout,
     memberReadAddress,
     memberReservations,
+    managedSlotAvailable,
+    managedSlotId,
     memberSummary,
     membershipAddress,
     membershipTiers,
@@ -1166,6 +1148,7 @@ export function App() {
     selectedCategories,
     selectedReservation,
     selectedReservationRated,
+    selectedSlotId,
     selectedCategoryHashes,
     setAllocator,
     setCategoryEnabled,
@@ -1176,6 +1159,8 @@ export function App() {
     setGracePeriodMinutes,
     setIsCustomerAccessOpen,
     setMonthKey,
+    setManagedSlotAvailable,
+    setManagedSlotId,
     setNoShowFee,
     setOperatorId,
     setOperatorForCategoryId,
@@ -1188,6 +1173,7 @@ export function App() {
     setReservationStartTime,
     setCheckoutRating,
     setSelectedCategories,
+    setSelectedSlotId,
     setTierActive,
     setTierCredits,
     setTierHourCap,

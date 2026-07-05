@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronDown, ChevronUp, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
 import { membershipManagerAbi, parkingLedgerAbi } from "../abi/contracts";
 import {
@@ -59,20 +59,6 @@ function reservationEndRow(reservation: any, app: any) {
   const end = reservationEndTime(reservation, app);
   const row = Number((end - dayStart + app.halfHourSeconds - 1n) / app.halfHourSeconds);
   return Math.min(CALENDAR_ROWS, Math.max(0, row));
-}
-
-function reservationForSlotRow(slotID: bigint, row: number, app: any) {
-  return app.slotCalendar.reservations.find((reservation: any) => {
-    if (reservation.slotID !== slotID) return false;
-    return reservationStartRow(reservation, app) === row;
-  });
-}
-
-function isCoveredByReservation(slotID: bigint, row: number, app: any) {
-  return app.slotCalendar.reservations.some((reservation: any) => {
-    if (reservation.slotID !== slotID) return false;
-    return row > reservationStartRow(reservation, app) && row < reservationEndRow(reservation, app);
-  });
 }
 
 function CustomerCollapsiblePanel({ title, description, badge, contentClassName = "", children }: any) {
@@ -239,6 +225,18 @@ export function CustomerPage({ app }: any) {
   const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(Math.floor(Date.now() / 1000));
   const [operatorRatings, setOperatorRatings] = useState<Record<string, { average: number; count: number }>>({});
+  const calendarCells = useMemo(() => {
+    const cells = new Map<string, { reservation?: any; covered: boolean }>();
+    for (const reservation of app.slotCalendar.reservations) {
+      const startRow = reservationStartRow(reservation, app);
+      const endRow = reservationEndRow(reservation, app);
+      cells.set(`${reservation.slotID}:${startRow}`, { reservation, covered: false });
+      for (let row = startRow + 1; row < endRow; row++) {
+        cells.set(`${reservation.slotID}:${row}`, { covered: true });
+      }
+    }
+    return cells;
+  }, [app.slotCalendar.dayStart, app.slotCalendar.reservations, app.hourSeconds, app.halfHourSeconds]);
   const selectedOperatorKnown = app.registeredOperators.some(
     (operator: any) => operator.id.toString() === app.operatorId,
   );
@@ -555,6 +553,21 @@ export function CustomerPage({ app }: any) {
                     onChange={(event: any) => app.setReservationDuration(event.target.value)}
                   />
                 </Label>
+                <Label>
+                  <span>Parking place</span>
+                  <Select value={app.selectedSlotId} onValueChange={app.setSelectedSlotId}>
+                    <SelectTrigger aria-label="Parking place">
+                      <SelectValue placeholder="Select an available place..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {app.slotCalendar.slots.map((slotID: bigint) => (
+                        <SelectItem key={slotID.toString()} value={slotID.toString()}>
+                          Slot {slotID.toString()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
                 <div className="customer-booking-submit">
                   <div className="customer-auto-slot">
                     <span>Free slot</span>
@@ -576,9 +589,10 @@ export function CustomerPage({ app }: any) {
                           const slotId = await app.refreshAvailableSlotPreview();
                           if (slotId === 0n) throw new Error("No free slot for the selected time");
 
-                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "reserve", [
+                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "reserveSlot", [
                             toUint(app.operatorId, "Operator ID"),
                             app.categoryHash,
+                            toUint(app.selectedSlotId, "Parking place"),
                             app.berlinDateTimeToUnixSeconds(app.reservationStartTime),
                             toUint(app.reservationDuration, "Duration hours"),
                           ]);
@@ -631,7 +645,8 @@ export function CustomerPage({ app }: any) {
                           <TableRow key={row}>
                             <TableCell className="slot-calendar-time-cell">{formatRowTime(row)}</TableCell>
                             {app.slotCalendar.slots.map((slotID: bigint) => {
-                              const reservation = reservationForSlotRow(slotID, row, app);
+                              const cell = calendarCells.get(`${slotID}:${row}`);
+                              const reservation = cell?.reservation;
                               if (reservation) {
                                 return (
                                   <TableCell
@@ -659,7 +674,7 @@ export function CustomerPage({ app }: any) {
                                 );
                               }
 
-                              if (isCoveredByReservation(slotID, row, app)) return null;
+                              if (cell?.covered) return null;
 
                               return (
                                 <TableCell key={slotID.toString()} className="slot-calendar-free-cell">
@@ -667,7 +682,7 @@ export function CustomerPage({ app }: any) {
                                     type="button"
                                     className="slot-calendar-free-button"
                                     aria-label={`Use ${formatRowTime(row)} as the start time`}
-                                    onClick={() => app.selectCalendarStartTime(rowStart)}
+                                    onClick={() => app.selectCalendarStartTime(rowStart, slotID)}
                                   />
                                 </TableCell>
                               );
