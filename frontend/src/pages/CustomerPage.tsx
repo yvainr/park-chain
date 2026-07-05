@@ -170,9 +170,64 @@ function OperatorRatingPictogram({ rating }: { rating?: { average: number; count
   );
 }
 
+function formatCountdown(seconds: number) {
+  const clamped = Math.max(0, Math.floor(seconds));
+  if (clamped < 60) return "less than 1m";
+
+  const days = Math.floor(clamped / 86400);
+  const hours = Math.floor((clamped % 86400) / 3600);
+  const minutes = Math.floor((clamped % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function reservationTimeState(reservation: any, app: any, nowSeconds: number) {
+  if (!reservation || reservation.status > 1) return null;
+
+  const startSeconds = Number(reservation.startTime);
+  const endSeconds = Number(reservationEndTime(reservation, app));
+  const durationSeconds = Math.max(1, endSeconds - startSeconds);
+  const rangeLabel = `${app.formatBerlinTime(reservation.startTime)} - ${app.formatBerlinTime(
+    reservationEndTime(reservation, app),
+  )}`;
+
+  if (nowSeconds < startSeconds) {
+    const startsIn = startSeconds - nowSeconds;
+    return {
+      ariaLabel: `Reservation starts in ${formatCountdown(startsIn)}`,
+      label: "Starts in",
+      percent: 100,
+      rangeLabel,
+      value: formatCountdown(startsIn),
+    };
+  }
+
+  if (nowSeconds >= endSeconds) {
+    return {
+      ariaLabel: "Reservation window has ended",
+      label: "Time left",
+      percent: 0,
+      rangeLabel,
+      value: "0m",
+    };
+  }
+
+  const remainingSeconds = endSeconds - nowSeconds;
+  return {
+    ariaLabel: `${formatCountdown(remainingSeconds)} left in reservation window`,
+    label: "Time left",
+    percent: Math.max(0, Math.min(100, (remainingSeconds / durationSeconds) * 100)),
+    rangeLabel,
+    value: formatCountdown(remainingSeconds),
+  };
+}
+
 export function CustomerPage({ app }: any) {
   const [isCheckoutRatingOpen, setIsCheckoutRatingOpen] = useState(false);
   const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
+  const [nowSeconds, setNowSeconds] = useState(Math.floor(Date.now() / 1000));
   const [operatorRatings, setOperatorRatings] = useState<Record<string, { average: number; count: number }>>({});
   const selectedOperatorKnown = app.registeredOperators.some(
     (operator: any) => operator.id.toString() === app.operatorId,
@@ -192,11 +247,28 @@ export function CustomerPage({ app }: any) {
   const availableSlot = app.availableSlotPreview ?? { error: "", loading: false, slotId: "" };
   const hasAvailableSlot = availableSlot.slotId && availableSlot.slotId !== "0" && !availableSlot.error;
   const operatorRatingKey = operatorOptions.map((operator: any) => operator.id.toString()).join(",");
+  const reservationProgress = reservationTimeState(app.selectedReservation, app, nowSeconds);
 
   useEffect(() => {
     setIsCheckoutRatingOpen(false);
     setIsRateRatingOpen(false);
   }, [app.reservationId]);
+
+  useEffect(() => {
+    if (!app.selectedReservation || app.selectedReservation.status > 1) return;
+
+    setNowSeconds(Math.floor(Date.now() / 1000));
+    const timer = window.setInterval(() => {
+      setNowSeconds(Math.floor(Date.now() / 1000));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [
+    app.selectedReservation?.duration?.toString(),
+    app.selectedReservation?.id?.toString(),
+    app.selectedReservation?.startTime?.toString(),
+    app.selectedReservation?.status,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,8 +333,10 @@ export function CustomerPage({ app }: any) {
     app.setTierActive(tier.active);
   }
 
+  const hasReservationPriority = app.memberReservations.length > 0 || app.reservationId !== "0";
+
   return (
-    <div className="customer-flow">
+    <div className={`customer-flow${hasReservationPriority ? " has-reservation-priority" : ""}`}>
       {!isMemberActive && (
         <Card className="customer-account-card">
           <CardHeader className="customer-account-header">
@@ -600,7 +674,7 @@ export function CustomerPage({ app }: any) {
             </div>
 
             <aside className="customer-side-stack">
-              <Card className="customer-workflow-card">
+              <Card className="customer-workflow-card customer-current-reservation-card">
             <CardHeader>
               <div className="customer-section-title">
                 <Ticket aria-hidden="true" size={18} />
@@ -651,6 +725,28 @@ export function CustomerPage({ app }: any) {
                   <RefreshCw aria-hidden="true" size={16} />
                 </Button>
               </div>
+
+              {reservationProgress && (
+                <div className="customer-reservation-progress">
+                  <div className="customer-reservation-progress-copy">
+                    <span>{reservationProgress.label}</span>
+                    <strong className={reservationProgress.value === "less than 1m" ? "is-compact" : ""}>
+                      {reservationProgress.value}
+                    </strong>
+                  </div>
+                  <div
+                    className="customer-reservation-progress-track"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(reservationProgress.percent)}
+                    aria-valuetext={reservationProgress.ariaLabel}
+                  >
+                    <span style={{ "--reservation-progress": `${reservationProgress.percent}%` } as any} />
+                  </div>
+                  <small>{reservationProgress.rangeLabel}</small>
+                </div>
+              )}
 
               <div className="actions customer-reservation-actions">
                 {app.canUseReservedActions && (
