@@ -25,6 +25,8 @@ declare namespace JSX {
 }
 
 interface ImportMetaEnv {
+  readonly VITE_PARKCHAIN_CHAIN_ID?: string;
+  readonly VITE_PARKCHAIN_RPC_URL?: string;
   readonly VITE_PARKCHAIN_ROUTER_ADDRESS?: string;
 }
 

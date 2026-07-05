@@ -75,7 +75,7 @@ export function SelectItem({ className = "", children, ...props }: any) {
         <Check aria-hidden="true" size={16} />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <SelectPrimitive.ItemText className="ui-select-item-text">{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   );
 }

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { CalendarClock, ChevronDown, ChevronUp, CreditCard, RefreshCw, Ticket, Wallet, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarClock, ChevronDown, ChevronUp, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
 import { membershipManagerAbi, parkingLedgerAbi } from "../abi/contracts";
 import {
   Badge,
@@ -118,7 +118,62 @@ function CustomerMetric({ label, value, wide = false }: any) {
   );
 }
 
+function StarRatingSelector({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const selectedValue = Math.min(5, Math.max(1, Number(value) || 1));
+
+  return (
+    <div className="customer-star-rating" role="radiogroup" aria-label="Rating">
+      {[1, 2, 3, 4, 5].map((rating) => (
+        <button
+          key={rating}
+          type="button"
+          className={rating <= selectedValue ? "is-selected" : ""}
+          role="radio"
+          aria-checked={rating === selectedValue}
+          aria-label={`${rating} star${rating === 1 ? "" : "s"}`}
+          onClick={() => onChange(String(rating))}
+        >
+          <Star aria-hidden="true" size={22} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OperatorFractionalStar({ fillPercent }: any) {
+  const clampedFill = Math.max(0, Math.min(100, fillPercent));
+
+  return (
+    <span className="operator-option-star" style={{ "--star-fill": `${clampedFill}%` } as any}>
+      <Star aria-hidden="true" size={13} className="operator-option-star-base" />
+      <span className="operator-option-star-fill">
+        <Star aria-hidden="true" size={13} />
+      </span>
+    </span>
+  );
+}
+
+function OperatorRatingPictogram({ rating }: { rating?: { average: number; count: number } }) {
+  const average = rating?.average ?? 0;
+  const count = rating?.count ?? 0;
+
+  return (
+    <span className="operator-option-rating" aria-label={count > 0 ? `${rating?.average.toFixed(2)} out of 5` : "No ratings yet"}>
+      <span className="operator-option-stars" aria-hidden="true">
+        {[1, 2, 3, 4, 5].map((star) => {
+          const fillPercent = (average - (star - 1)) * 100;
+          return <OperatorFractionalStar key={star} fillPercent={fillPercent} />;
+        })}
+      </span>
+      <small>{count > 0 ? `${rating?.average.toFixed(1)} (${count})` : "New"}</small>
+    </span>
+  );
+}
+
 export function CustomerPage({ app }: any) {
+  const [isCheckoutRatingOpen, setIsCheckoutRatingOpen] = useState(false);
+  const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
+  const [operatorRatings, setOperatorRatings] = useState<Record<string, { average: number; count: number }>>({});
   const selectedOperatorKnown = app.registeredOperators.some(
     (operator: any) => operator.id.toString() === app.operatorId,
   );
@@ -136,6 +191,64 @@ export function CustomerPage({ app }: any) {
   const isAccessOpen = Boolean(app.isCustomerAccessOpen);
   const availableSlot = app.availableSlotPreview ?? { error: "", loading: false, slotId: "" };
   const hasAvailableSlot = availableSlot.slotId && availableSlot.slotId !== "0" && !availableSlot.error;
+  const operatorRatingKey = operatorOptions.map((operator: any) => operator.id.toString()).join(",");
+
+  useEffect(() => {
+    setIsCheckoutRatingOpen(false);
+    setIsRateRatingOpen(false);
+  }, [app.reservationId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOperatorRatings() {
+      if (!app.ledgerAddress || operatorOptions.length === 0) {
+        setOperatorRatings({});
+        return;
+      }
+
+      let ledger;
+      try {
+        ledger = app.requireLedger();
+      } catch {
+        setOperatorRatings({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        operatorOptions.map(async (operator: any) => {
+          const operatorId = toUint(operator.id.toString(), "Operator ID");
+          try {
+            const [averageRaw, ratingRaw] = await Promise.all([
+              readContract({
+                address: ledger,
+                abi: parkingLedgerAbi,
+                functionName: "calcAvgRating",
+                args: [operatorId],
+              }),
+              readContract({
+                address: ledger,
+                abi: parkingLedgerAbi,
+                functionName: "operatorRatings",
+                args: [operatorId],
+              }),
+            ]);
+            const count = Number((ratingRaw as any).ratingCount ?? (ratingRaw as any)[1] ?? 0);
+            return [operator.id.toString(), { average: Number(averageRaw) / 100, count }] as const;
+          } catch {
+            return [operator.id.toString(), { average: 0, count: 0 }] as const;
+          }
+        }),
+      );
+
+      if (!cancelled) setOperatorRatings(Object.fromEntries(entries));
+    }
+
+    void loadOperatorRatings();
+    return () => {
+      cancelled = true;
+    };
+  }, [app.ledgerAddress, operatorRatingKey]);
 
   function selectMembershipTier(tierId: string) {
     const tier = app.membershipTiers.find((candidate: any) => candidate.id.toString() === tierId);
@@ -316,7 +429,10 @@ export function CustomerPage({ app }: any) {
                     <SelectContent>
                       {operatorOptions.map((operator: any) => (
                         <SelectItem key={operator.id.toString()} value={operator.id.toString()}>
-                          {operator.name} (ID {operator.id.toString()})
+                          <span className="operator-option-row">
+                            <span className="operator-option-name">{operator.name} (ID {operator.id.toString()})</span>
+                            <OperatorRatingPictogram rating={operatorRatings[operator.id.toString()]} />
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -355,43 +471,45 @@ export function CustomerPage({ app }: any) {
                     onChange={(event: any) => app.setReservationDuration(event.target.value)}
                   />
                 </Label>
-                <div className="customer-auto-slot">
-                  <span>Free slot</span>
-                  {availableSlot.loading && <Badge variant="secondary">Checking</Badge>}
-                  {!availableSlot.loading && hasAvailableSlot && (
-                    <Badge variant="success">Slot {availableSlot.slotId}</Badge>
-                  )}
-                  {!availableSlot.loading && !hasAvailableSlot && (
-                    <Badge variant={availableSlot.error ? "error" : "secondary"}>
-                      {availableSlot.error ? "Unavailable" : "Pending"}
-                    </Badge>
-                  )}
-                </div>
                 <div className="customer-booking-submit">
-                  <Button
-                    className="customer-booking-action-button"
-                    onClick={() =>
-                      app.run("Reserve", async () => {
-                        const slotId = await app.refreshAvailableSlotPreview();
-                        if (slotId === 0n) throw new Error("No free slot for the selected time");
+                  <div className="customer-auto-slot">
+                    <span>Free slot</span>
+                    {availableSlot.loading && <Badge variant="secondary">Checking</Badge>}
+                    {!availableSlot.loading && hasAvailableSlot && (
+                      <Badge variant="success">Slot {availableSlot.slotId}</Badge>
+                    )}
+                    {!availableSlot.loading && !hasAvailableSlot && (
+                      <Badge variant={availableSlot.error ? "error" : "secondary"}>
+                        {availableSlot.error ? "Unavailable" : "Pending"}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="customer-booking-submit-action">
+                    <Button
+                      className="customer-booking-action-button"
+                      onClick={() =>
+                        app.run("Reserve", async () => {
+                          const slotId = await app.refreshAvailableSlotPreview();
+                          if (slotId === 0n) throw new Error("No free slot for the selected time");
 
-                        const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "reserve", [
-                          toUint(app.operatorId, "Operator ID"),
-                          app.categoryHash,
-                          app.berlinDateTimeToUnixSeconds(app.reservationStartTime),
-                          toUint(app.reservationDuration, "Duration hours"),
-                        ]);
-                        await app.loadLatestMemberReservation();
-                        await app.refreshMemberAccount();
-                        await app.refreshMemberReservations();
-                        await app.refreshSlotCalendar();
-                        return result;
-                      })
-                    }
-                    disabled={availableSlot.loading || availableSlot.slotId === "0" || Boolean(availableSlot.error)}
-                  >
-                    Reserve
-                  </Button>
+                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "reserve", [
+                            toUint(app.operatorId, "Operator ID"),
+                            app.categoryHash,
+                            app.berlinDateTimeToUnixSeconds(app.reservationStartTime),
+                            toUint(app.reservationDuration, "Duration hours"),
+                          ]);
+                          await app.loadLatestMemberReservation();
+                          await app.refreshMemberAccount();
+                          await app.refreshMemberReservations();
+                          await app.refreshSlotCalendar();
+                          return result;
+                        })
+                      }
+                      disabled={availableSlot.loading || availableSlot.slotId === "0" || Boolean(availableSlot.error)}
+                    >
+                      Reserve
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -437,13 +555,22 @@ export function CustomerPage({ app }: any) {
                                     className="slot-calendar-booked-cell"
                                     rowSpan={reservationRowSpan(reservation, app)}
                                   >
-                                    <div className="slot-calendar-booking">
+                                    <button
+                                      type="button"
+                                      className="slot-calendar-booking"
+                                      onClick={() =>
+                                        app.run("Load reservation", () =>
+                                          app.loadReservation(toUint(reservation.id.toString(), "Reservation ID")),
+                                        )
+                                      }
+                                      aria-label={`Load reservation ${reservation.id.toString()}`}
+                                    >
                                       <strong>
                                         {app.formatBerlinTime(reservation.startTime)} -{" "}
                                         {app.formatBerlinTime(reservationEndTime(reservation, app))}
                                       </strong>
                                       <span>Reservation #{reservation.id.toString()}</span>
-                                    </div>
+                                    </button>
                                   </TableCell>
                                 );
                               }
@@ -576,23 +703,74 @@ export function CustomerPage({ app }: any) {
                 )}
 
                 {app.canCheckOutReservation && (
-                  <Button
-                    onClick={() =>
-                      app.run("Check out", async () => {
-                        const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "checkOut", [
-                          toUint(app.reservationId, "Reservation ID"),
-                        ]);
-                        await app.refreshSelectedReservation();
-                        await app.refreshSlotCalendar();
-                        return result;
-                      })
-                    }
-                  >
-                    Check Out
-                  </Button>
+                  <>
+                    {isCheckoutRatingOpen && (
+                      <div className="customer-rating-panel">
+                        <span>Rating</span>
+                        <p>Please rate the service.</p>
+                        <StarRatingSelector value={app.checkoutRating} onChange={app.setCheckoutRating} />
+                      </div>
+                    )}
+                    <Button
+                      onClick={() => {
+                        if (!isCheckoutRatingOpen) {
+                          setIsCheckoutRatingOpen(true);
+                          return;
+                        }
+
+                        return app.run("Check out", async () => {
+                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "checkOutWithRating", [
+                            toUint(app.reservationId, "Reservation ID"),
+                            toUint(app.checkoutRating, "Rating"),
+                          ]);
+                          await app.refreshSelectedReservation();
+                          await app.refreshMemberReservations();
+                          await app.refreshSlotCalendar();
+                          setIsCheckoutRatingOpen(false);
+                          return result;
+                        });
+                      }}
+                    >
+                      {isCheckoutRatingOpen ? "Submit Check Out" : "Check Out"}
+                    </Button>
+                  </>
                 )}
 
-                {!app.canUseReservedActions && !app.canCheckOutReservation && (
+                {app.canRateReservation && (
+                  <>
+                    {isRateRatingOpen && (
+                      <div className="customer-rating-panel">
+                        <span>Rating</span>
+                        <p>Please rate the service.</p>
+                        <StarRatingSelector value={app.checkoutRating} onChange={app.setCheckoutRating} />
+                      </div>
+                    )}
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        if (!isRateRatingOpen) {
+                          setIsRateRatingOpen(true);
+                          return;
+                        }
+
+                        return app.run("Rate reservation", async () => {
+                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "rateReservation", [
+                            toUint(app.reservationId, "Reservation ID"),
+                            toUint(app.checkoutRating, "Rating"),
+                          ]);
+                          await app.refreshSelectedReservation();
+                          await app.refreshMemberReservations();
+                          setIsRateRatingOpen(false);
+                          return result;
+                        });
+                      }}
+                    >
+                      {isRateRatingOpen ? "Submit Rating" : "Rate"}
+                    </Button>
+                  </>
+                )}
+
+                {!app.canUseReservedActions && !app.canCheckOutReservation && !app.canRateReservation && (
                   <p className="customer-muted-copy">Reserve or load an active booking.</p>
                 )}
               </div>

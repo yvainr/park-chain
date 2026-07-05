@@ -391,7 +391,9 @@ export function App() {
   const [reservationId, setReservationId] = useState("0");
   const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
+  const [checkoutRating, setCheckoutRating] = useState("5");
   const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
+  const [selectedReservationRated, setSelectedReservationRated] = useState(false);
   const [memberReservations, setMemberReservations] = useState<ReturnType<typeof parseReservation>[]>([]);
   const [availableSlotPreview, setAvailableSlotPreview] = useState({
     error: "",
@@ -441,6 +443,10 @@ export function App() {
       window.removeEventListener("popstate", onRouteChange);
     };
   }, []);
+
+  useEffect(() => {
+    setIsAccountOpen(false);
+  }, [account, role]);
 
   useEffect(() => {
     let cancelled = false;
@@ -549,7 +555,7 @@ export function App() {
           setOutput(
             `Router key unset\n${unset
               .map((contract) => `${contract.label} resolved to ${zeroAddress}`)
-              .join("\n")}\nRedeploy with ROUTER_ADDRESS=${routerAddress} npm run deploy:contracts:local`,
+              .join("\n")}\nRedeploy with ROUTER_ADDRESS=${routerAddress} npm run deploy:contracts:local or npm run deploy:contracts:sepolia`,
           );
           return;
         }
@@ -709,6 +715,7 @@ export function App() {
   }
 
   function loginAs(nextRole: UserRole) {
+    setIsAccountOpen(false);
     setRole(null);
     setRequestedRole(nextRole);
     window.history.pushState(null, "", `#/${nextRole}`);
@@ -716,6 +723,7 @@ export function App() {
   }
 
   function logout() {
+    setIsAccountOpen(false);
     setRole(null);
     setRequestedRole(null);
     window.history.pushState(null, "", "#/login");
@@ -751,7 +759,16 @@ export function App() {
       args: [id],
     });
     const reservation = parseReservation(result);
+    const rated = Boolean(
+      await readContract({
+        address: requireLedger(),
+        abi: parkingLedgerAbi,
+        functionName: "reservationRated",
+        args: [reservation.id],
+      }),
+    );
     setSelectedReservation(reservation);
+    setSelectedReservationRated(rated);
     setReservationId(reservation.id.toString());
     return result;
   }
@@ -1113,6 +1130,8 @@ export function App() {
     berlinDateTimeToUnixSeconds,
     canUseReservedActions: hasSelectedReservation && selectedReservation?.status === 0,
     canCheckOutReservation: hasSelectedReservation && selectedReservation?.status === 1,
+    canRateReservation: hasSelectedReservation && selectedReservation?.status === 2 && !selectedReservationRated,
+    checkoutRating,
     registryAddress,
     registeredOperators,
     availableSlotPreview,
@@ -1145,6 +1164,7 @@ export function App() {
     run,
     selectCalendarStartTime,
     selectedCategories,
+    selectedReservationRated,
     selectedCategoryHashes,
     setAllocator,
     setCategoryEnabled,
@@ -1165,6 +1185,7 @@ export function App() {
     setReservationDuration,
     setReservationId,
     setReservationStartTime,
+    setCheckoutRating,
     setSelectedCategories,
     setTierActive,
     setTierCredits,

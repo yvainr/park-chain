@@ -9,6 +9,7 @@
     "gas:contracts": "hardhat run --no-compile scripts/generate-hardhat-gas-table.ts",
     "node:contracts": "hardhat node",
     "deploy:contracts:local": "hardhat run scripts/deploy-hardhat.ts --network localhost",
+    "deploy:contracts:sepolia": "hardhat run scripts/deploy-hardhat.ts --network sepolia",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build"
   },

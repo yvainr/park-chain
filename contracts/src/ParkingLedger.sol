@@ -84,6 +84,7 @@ contract ParkingLedger is Ownable {
     event CheckedOut(uint256 indexed reservationID, uint256 checkOutTime, uint256 overstayFee);
     event NoShow(uint256 indexed reservationID, uint256 noShowFee);
     event GracePeriodUpdated(uint256 gracePeriodMinutes);
+    event ReservationRated(uint256 indexed reservationID, uint256 indexed operatorID, address indexed member, uint8 stars);
 
     constructor(
         IParkingMembershipManager membershipManager_,
@@ -287,6 +288,23 @@ contract ParkingLedger is Ownable {
         emit CheckedOut(reservationID, block.timestamp, overstayFee);
     }
 
+    function checkOutWithRating(uint256 reservationID, uint8 stars) external {
+        Reservation storage reservation = reservations[reservationID];
+
+        require(reservation.member == msg.sender, "ParkingLedger: not member");
+        require(reservation.status == ReservationStatus.CheckedIn, "ParkingLedger: invalid status");
+
+        uint256 overstayFee = _calculateOverstayFee(reservation);
+
+        _chargeAndAllocate(reservation.member, reservation.operatorID, overstayFee);
+
+        reservation.status = ReservationStatus.CheckedOut;
+
+        emit CheckedOut(reservationID, block.timestamp, overstayFee);
+
+        _recordRating(reservation, stars);
+    }
+
     function markNoShow(uint256 reservationID) external {
         Reservation storage reservation = reservations[reservationID];
 
@@ -464,18 +482,25 @@ contract ParkingLedger is Ownable {
 
     function rateReservation(uint256 reservationID, uint8 stars) external {
         Reservation storage reservation = reservations[reservationID];
-        require(stars >= 1 && stars <= 5, "ParkingLedger: invalid rating");
         require(reservation.member == msg.sender, "ParkingLedger: not member");
         require(reservation.status == ReservationStatus.CheckedOut, "ParkingLedger: Reservation not checked out");
+
+        _recordRating(reservation, stars);
+    }
+
+    function _recordRating(Reservation storage reservation, uint8 stars) private {
+        require(stars >= 1 && stars <= 5, "ParkingLedger: invalid rating");
         require(!reservationRated[reservation.reservationID], "ParkingLedger: Already rated");
 
         operatorRatings[reservation.operatorID].totalStars += stars;
         operatorRatings[reservation.operatorID].ratingCount++;
 
         reservationRated[reservation.reservationID] = true;
+
+        emit ReservationRated(reservation.reservationID, reservation.operatorID, reservation.member, stars);
     }
 
-    function calcAvgRating(uint256 operatorID) external view returns (uint256){
+    function calcAvgRating(uint256 operatorID) external view returns (uint256) {
         OperatorRating memory rating = operatorRatings[operatorID];
 
         if (rating.ratingCount == 0) {

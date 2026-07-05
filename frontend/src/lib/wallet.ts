@@ -1,7 +1,18 @@
 import { type Abi, type Address, createPublicClient, createWalletClient, custom, http } from "viem";
-import { hardhat } from "viem/chains";
+import { hardhat, sepolia } from "viem/chains";
 
 const LOCAL_TRANSACTION_GAS_LIMIT = 1_000_000n;
+const HARDHAT_CHAIN_ID = hardhat.id;
+const SEPOLIA_CHAIN_ID = sepolia.id;
+const DEFAULT_LOCAL_RPC_URL = "http://127.0.0.1:8545";
+const DEFAULT_SEPOLIA_RPC_URL = "https://rpc.sepolia.org";
+
+const configuredChainId = Number(import.meta.env.VITE_PARKCHAIN_CHAIN_ID ?? HARDHAT_CHAIN_ID);
+export const appChain = configuredChainId === SEPOLIA_CHAIN_ID ? sepolia : hardhat;
+export const appRpcUrl = String(
+  import.meta.env.VITE_PARKCHAIN_RPC_URL ??
+    (appChain.id === SEPOLIA_CHAIN_ID ? DEFAULT_SEPOLIA_RPC_URL : DEFAULT_LOCAL_RPC_URL),
+).trim();
 
 declare global {
   interface Window {
@@ -23,6 +34,7 @@ export function requireEthereum() {
 
 export async function connectWallet() {
   const accounts = await requireEthereum().request<Address[]>({ method: "eth_requestAccounts" });
+  await ensureWalletChain();
   return accounts[0] ?? "";
 }
 
@@ -67,8 +79,8 @@ export function toUint(value: string | number | bigint, label = "Value") {
 }
 
 export const publicClient = createPublicClient({
-  chain: hardhat,
-  transport: http("http://127.0.0.1:8545"),
+  chain: appChain,
+  transport: http(appRpcUrl),
 });
 
 const HARDHAT_TX_GAS_CAP = 16_000_000n;
@@ -77,9 +89,46 @@ const accountWriteLocks = new Map<string, Promise<unknown>>();
 function walletClient(account: Address) {
   return createWalletClient({
     account,
-    chain: hardhat,
+    chain: appChain,
     transport: custom(requireEthereum()),
   });
+}
+
+async function ensureWalletChain() {
+  const ethereum = requireEthereum();
+  const currentChainId = await ethereum.request<string>({ method: "eth_chainId" });
+  const targetChainId = `0x${appChain.id.toString(16)}`;
+
+  if (currentChainId.toLowerCase() === targetChainId) {
+    return;
+  }
+
+  try {
+    await ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: targetChainId }],
+    });
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+
+    if (code === 4902 && appChain.id === SEPOLIA_CHAIN_ID) {
+      await ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [
+          {
+            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+            chainId: targetChainId,
+            chainName: "Sepolia",
+            nativeCurrency: { decimals: 18, name: "Sepolia Ether", symbol: "ETH" },
+            rpcUrls: [appRpcUrl],
+          },
+        ],
+      });
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function withAccountWriteLock<T>(account: Address, action: () => Promise<T>) {
@@ -122,6 +171,7 @@ export async function writeContract(args: {
   value?: bigint;
 }) {
   return withAccountWriteLock(args.account, async () => {
+    await ensureWalletChain();
     const client = walletClient(args.account);
     const estimatedGas = await publicClient.estimateContractGas({
       account: args.account,
@@ -131,12 +181,12 @@ export async function writeContract(args: {
       args: args.args ?? [],
       // Avoid injected wallets using Hardhat's 21M fallback estimate, which is
       // above the node's 16,777,216 per-transaction gas cap.
-      gas: LOCAL_TRANSACTION_GAS_LIMIT,
+      ...(appChain.id === HARDHAT_CHAIN_ID ? { gas: LOCAL_TRANSACTION_GAS_LIMIT } : {}),
       value: args.value,
     } as any);
     const gas = estimatedGas + estimatedGas / 5n + 10_000n;
 
-    if (gas > HARDHAT_TX_GAS_CAP) {
+    if (appChain.id === HARDHAT_CHAIN_ID && gas > HARDHAT_TX_GAS_CAP) {
       throw new Error(`Estimated gas ${gas.toString()} exceeds the local Hardhat transaction cap`);
     }
 

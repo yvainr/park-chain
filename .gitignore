@@ -6,6 +6,9 @@ frontend/.vite/
 
 # Solidity build artifacts and caches
 */.env
+.env
+.env.local
+.env.sepolia
 out/
 cache/
 broadcast/
