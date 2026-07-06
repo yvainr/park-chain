@@ -224,6 +224,16 @@ function reservationTimeState(reservation: any, app: any, nowSeconds: number) {
   };
 }
 
+function reservationDropdownStatus(reservation: any, app: any, nowSeconds: number) {
+  if (reservation.status === 2) return "checked out";
+  if (reservation.status >= 3) return "canceled";
+  if (reservation.status === 1) return "running";
+
+  const startSeconds = Number(reservation.startTime);
+  const endSeconds = Number(reservationEndTime(reservation, app));
+  return nowSeconds >= startSeconds && nowSeconds < endSeconds ? "running" : "created";
+}
+
 export function CustomerPage({ app }: any) {
   const [isCheckoutRatingOpen, setIsCheckoutRatingOpen] = useState(false);
   const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
@@ -705,12 +715,27 @@ export function CustomerPage({ app }: any) {
                         <SelectValue placeholder="Select a reservation..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {app.memberReservations.map((reservation: any) => (
-                          <SelectItem key={reservation.id.toString()} value={reservation.id.toString()}>
-                            #{reservation.id.toString()} - {app.formatBerlinTime(reservation.startTime)} - Slot{" "}
-                            {reservation.slotID.toString()}
-                          </SelectItem>
-                        ))}
+                        {app.memberReservations.map((reservation: any) => {
+                          const dropdownStatus = reservationDropdownStatus(reservation, app, nowSeconds);
+                          return (
+                            <SelectItem key={reservation.id.toString()} value={reservation.id.toString()}>
+                              <span className="reservation-option-row">
+                                <span className="reservation-option-main">
+                                  #{reservation.id.toString()} - {app.formatBerlinTime(reservation.startTime)} - Slot{" "}
+                                  {reservation.slotID.toString()}
+                                </span>
+                                <span
+                                  className={`reservation-option-badge reservation-option-badge-${dropdownStatus.replace(
+                                    " ",
+                                    "-",
+                                  )}`}
+                                >
+                                  {dropdownStatus}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   ) : (

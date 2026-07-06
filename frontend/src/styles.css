@@ -818,6 +818,10 @@ p {
   display: block;
 }
 
+.ui-select-item:has(.reservation-option-row) .ui-select-item-text {
+  flex: 1 1 auto;
+}
+
 .operator-option-row {
   min-width: 0;
   width: 100%;
@@ -886,6 +890,66 @@ p {
 }
 
 .ui-select-trigger .operator-option-rating small {
+  display: none;
+}
+
+.reservation-option-row {
+  display: grid;
+  justify-items: space-between;
+  position: relative;
+  min-width: 100%;
+  width: 100%;
+  grid-template-columns: 3fr 1fr;
+  gap: 8px;
+}
+
+.reservation-option-main {
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.reservation-option-badge {
+  display: flex;
+  justify-self: flex-end;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.reservation-option-badge-created {
+  border-color: #d7e7ff;
+  color: #3f6fb5;
+  background: #f6f9ff;
+}
+
+.reservation-option-badge-running {
+  border-color: #bbf7d0;
+  color: #15803d;
+  background: #f0fdf4;
+}
+
+.reservation-option-badge-checked-out {
+  border-color: #cbd5e1;
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.reservation-option-badge-canceled {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.ui-select-trigger .reservation-option-badge {
   display: none;
 }
 
