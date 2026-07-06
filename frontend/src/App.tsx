@@ -392,6 +392,8 @@ export function App() {
   const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
   const [checkoutRating, setCheckoutRating] = useState("5");
+  const [managedSlotId, setManagedSlotId] = useState("1");
+  const [managedSlotAvailable, setManagedSlotAvailable] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
   const [selectedReservationRated, setSelectedReservationRated] = useState(false);
   const [memberReservations, setMemberReservations] = useState<ReturnType<typeof parseReservation>[]>([]);
@@ -1114,6 +1116,8 @@ export function App() {
     logout,
     memberReadAddress,
     memberReservations,
+    managedSlotAvailable,
+    managedSlotId,
     memberSummary,
     membershipAddress,
     membershipTiers,
@@ -1176,6 +1180,8 @@ export function App() {
     setGracePeriodMinutes,
     setIsCustomerAccessOpen,
     setMonthKey,
+    setManagedSlotAvailable,
+    setManagedSlotId,
     setNoShowFee,
     setOperatorId,
     setOperatorForCategoryId,
