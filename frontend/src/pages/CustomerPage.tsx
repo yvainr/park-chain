@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronDown, ChevronUp, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
-import { membershipManagerAbi, parkingLedgerAbi } from "../abi/contracts";
+import { membershipManagerAbi, operatorRegistryAbi, parkingLedgerAbi } from "../abi/contracts";
 import {
   Badge,
   Button,
@@ -38,27 +38,20 @@ function reservationEndTime(reservation: any, app: any) {
   return reservation.startTime + reservation.duration * app.hourSeconds;
 }
 
-function reservationRowSpan(reservation: any, app: any) {
-  const dayStart = app.slotCalendar.dayStart;
-  const start = reservation.startTime > dayStart ? reservation.startTime : dayStart;
-  const end = reservationEndTime(reservation, app);
-  const dayEnd = dayStart + 24n * app.hourSeconds;
-  const clippedEnd = end < dayEnd ? end : dayEnd;
-  const span = (clippedEnd - start + app.halfHourSeconds - 1n) / app.halfHourSeconds;
-  return Number(span > 0n ? span : 1n);
-}
-
 function reservationStartRow(reservation: any, app: any) {
   const dayStart = app.slotCalendar.dayStart;
   if (reservation.startTime <= dayStart) return 0;
-  return Number((reservation.startTime - dayStart) / app.halfHourSeconds);
+  return Math.min(CALENDAR_ROWS - 1, Number((reservation.startTime - dayStart) / app.halfHourSeconds));
 }
 
 function reservationEndRow(reservation: any, app: any) {
-  const dayStart = app.slotCalendar.dayStart;
   const end = reservationEndTime(reservation, app);
-  const row = Number((end - dayStart + app.halfHourSeconds - 1n) / app.halfHourSeconds);
-  return Math.min(CALENDAR_ROWS, Math.max(0, row));
+  const row = Number((end - app.slotCalendar.dayStart + app.halfHourSeconds - 1n) / app.halfHourSeconds);
+  return Math.min(CALENDAR_ROWS, Math.max(1, row));
+}
+
+function reservationRowSpan(reservation: any, app: any) {
+  return Math.max(1, reservationEndRow(reservation, app) - reservationStartRow(reservation, app));
 }
 
 function CustomerCollapsiblePanel({ title, description, badge, contentClassName = "", children }: any) {
@@ -225,6 +218,24 @@ export function CustomerPage({ app }: any) {
   const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(Math.floor(Date.now() / 1000));
   const [operatorRatings, setOperatorRatings] = useState<Record<string, { average: number; count: number }>>({});
+  const [categorySupport, setCategorySupport] = useState<Record<string, boolean>>({});
+  const bookedSlotIds = useMemo(
+    () =>
+      [...new Set(app.slotCalendar.reservations.map((reservation: any) => reservation.slotID.toString()))]
+        .map(BigInt)
+        .sort((left, right) => Number(left - right)),
+    [app.slotCalendar.reservations],
+  );
+  const calendarRows = useMemo(() => {
+    if (app.slotCalendar.reservations.length === 0) return [];
+    const first = Math.min(
+      ...app.slotCalendar.reservations.map((reservation: any) => reservationStartRow(reservation, app)),
+    );
+    const last = Math.max(
+      ...app.slotCalendar.reservations.map((reservation: any) => reservationEndRow(reservation, app)),
+    );
+    return Array.from({ length: last - first }, (_value, index) => first + index);
+  }, [app.slotCalendar.dayStart, app.slotCalendar.reservations, app.halfHourSeconds]);
   const calendarCells = useMemo(() => {
     const cells = new Map<string, { reservation?: any; covered: boolean }>();
     for (const reservation of app.slotCalendar.reservations) {
@@ -236,7 +247,7 @@ export function CustomerPage({ app }: any) {
       }
     }
     return cells;
-  }, [app.slotCalendar.dayStart, app.slotCalendar.reservations, app.hourSeconds, app.halfHourSeconds]);
+  }, [app.slotCalendar.dayStart, app.slotCalendar.reservations, app.halfHourSeconds]);
   const selectedOperatorKnown = app.registeredOperators.some(
     (operator: any) => operator.id.toString() === app.operatorId,
   );
@@ -329,6 +340,42 @@ export function CustomerPage({ app }: any) {
       cancelled = true;
     };
   }, [app.ledgerAddress, operatorRatingKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCategorySupport() {
+      if (!app.registryAddress || !app.operatorId) {
+        setCategorySupport({});
+        return;
+      }
+
+      try {
+        const registry = app.requireRegistry();
+        const operatorId = toUint(app.operatorId, "Operator ID");
+        const entries = await Promise.all(
+          app.categoryNames.map(async (name: CategoryName) => {
+            const supported = await readContract({
+              address: registry,
+              abi: operatorRegistryAbi,
+              functionName: "supportsCategory",
+              args: [operatorId, app.categoryHashForName(name)],
+            });
+            return [name, Boolean(supported)] as const;
+          }),
+        );
+
+        if (!cancelled) setCategorySupport(Object.fromEntries(entries));
+      } catch {
+        if (!cancelled) setCategorySupport({});
+      }
+    }
+
+    void loadCategorySupport();
+    return () => {
+      cancelled = true;
+    };
+  }, [app.registryAddress, app.operatorId]);
 
   function selectMembershipTier(tierId: string) {
     const tier = app.membershipTiers.find((candidate: any) => candidate.id.toString() === tierId);
@@ -527,11 +574,14 @@ export function CustomerPage({ app }: any) {
                       <SelectValue placeholder="Select a category..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {app.categoryNames.map((name: CategoryName) => (
-                        <SelectItem key={name} value={name}>
-                          {name}
-                        </SelectItem>
-                      ))}
+                      {app.categoryNames.map((name: CategoryName) => {
+                        const forbidden = categorySupport[name] === false;
+                        return (
+                          <SelectItem key={name} value={name} disabled={forbidden}>
+                            {name}{forbidden ? " — not available" : ""}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </Label>
@@ -614,24 +664,26 @@ export function CustomerPage({ app }: any) {
               <div className="slot-calendar-panel customer-calendar-panel">
                 <div className="slot-calendar-toolbar">
                   <div>
-                    <strong>Available slots</strong>
+                    <strong>Booked slots</strong>
                     <span>
-                      {app.slotCalendar.capacity} slots on {app.slotCalendar.dateLabel || "selected date"}
+                      {app.slotCalendar.reservations.length} booking
+                      {app.slotCalendar.reservations.length === 1 ? "" : "s"} on{" "}
+                      {app.slotCalendar.dateLabel || "selected date"}
                     </span>
                   </div>
                   {app.slotCalendar.loading && <Badge variant="secondary">Loading</Badge>}
                   {app.slotCalendar.error && <Badge variant="error">Unavailable</Badge>}
                 </div>
                 {app.slotCalendar.error && <p className="slot-calendar-error">{app.slotCalendar.error}</p>}
-                {!app.slotCalendar.error && app.slotCalendar.slots.length === 0 && (
-                  <p className="slot-calendar-empty">No configured slots for this operator and category.</p>
+                {!app.slotCalendar.error && app.slotCalendar.reservations.length === 0 && (
+                  <p className="slot-calendar-empty">No slots are booked for this operator, type, and date.</p>
                 )}
-                {app.slotCalendar.slots.length > 0 && (
+                {app.slotCalendar.reservations.length > 0 && (
                   <Table className="slot-calendar-table">
                     <TableHeader>
                       <TableRow>
                         <TableHead className="slot-calendar-time-head">Time</TableHead>
-                        {app.slotCalendar.slots.map((slotID: bigint) => (
+                        {bookedSlotIds.map((slotID) => (
                           <TableHead key={slotID.toString()} className="slot-calendar-slot-head">
                             Slot {slotID.toString()}
                           </TableHead>
@@ -639,57 +691,46 @@ export function CustomerPage({ app }: any) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {Array.from({ length: CALENDAR_ROWS }, (_value, row) => {
-                        const rowStart = app.slotCalendar.dayStart + BigInt(row) * app.halfHourSeconds;
-                        return (
-                          <TableRow key={row}>
-                            <TableCell className="slot-calendar-time-cell">{formatRowTime(row)}</TableCell>
-                            {app.slotCalendar.slots.map((slotID: bigint) => {
-                              const cell = calendarCells.get(`${slotID}:${row}`);
-                              const reservation = cell?.reservation;
-                              if (reservation) {
-                                return (
-                                  <TableCell
-                                    key={slotID.toString()}
-                                    className="slot-calendar-booked-cell"
-                                    rowSpan={reservationRowSpan(reservation, app)}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="slot-calendar-booking"
-                                      onClick={() =>
-                                        app.run("Load reservation", () =>
-                                          app.loadReservation(toUint(reservation.id.toString(), "Reservation ID")),
-                                        )
-                                      }
-                                      aria-label={`Load reservation ${reservation.id.toString()}`}
-                                    >
-                                      <strong>
-                                        {app.formatBerlinTime(reservation.startTime)} -{" "}
-                                        {app.formatBerlinTime(reservationEndTime(reservation, app))}
-                                      </strong>
-                                      <span>Reservation #{reservation.id.toString()}</span>
-                                    </button>
-                                  </TableCell>
-                                );
-                              }
-
-                              if (cell?.covered) return null;
-
+                      {calendarRows.map((row) => (
+                        <TableRow key={row}>
+                          <TableCell className="slot-calendar-time-cell">{formatRowTime(row)}</TableCell>
+                          {bookedSlotIds.map((slotID) => {
+                            const cell = calendarCells.get(`${slotID}:${row}`);
+                            const reservation = cell?.reservation;
+                            if (reservation) {
                               return (
-                                <TableCell key={slotID.toString()} className="slot-calendar-free-cell">
+                                <TableCell
+                                  key={slotID.toString()}
+                                  className="slot-calendar-booked-cell"
+                                  rowSpan={reservationRowSpan(reservation, app)}
+                                >
                                   <button
                                     type="button"
-                                    className="slot-calendar-free-button"
-                                    aria-label={`Use ${formatRowTime(row)} as the start time`}
-                                    onClick={() => app.selectCalendarStartTime(rowStart, slotID)}
-                                  />
+                                    className="slot-calendar-booking"
+                                    onClick={() =>
+                                      app.run("Load reservation", () =>
+                                        app.loadReservation(toUint(reservation.id.toString(), "Reservation ID")),
+                                      )
+                                    }
+                                    aria-label={`Load reservation ${reservation.id.toString()}`}
+                                  >
+                                    <strong>
+                                      {app.formatBerlinTime(reservation.startTime)} –{" "}
+                                      {app.formatBerlinTime(reservationEndTime(reservation, app))}
+                                    </strong>
+                                    <span>
+                                      #{reservation.id.toString()} ·{" "}
+                                      {reservation.status === 1 ? "Checked in" : "Reserved"}
+                                    </span>
+                                  </button>
                                 </TableCell>
                               );
-                            })}
-                          </TableRow>
-                        );
-                      })}
+                            }
+                            if (cell?.covered) return null;
+                            return <TableCell key={slotID.toString()} className="slot-calendar-free-cell" />;
+                          })}
+                        </TableRow>
+                      ))}
                     </TableBody>
                   </Table>
                 )}

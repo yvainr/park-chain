@@ -9,7 +9,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  Checkbox,
   Input,
   Label,
   Select,
@@ -277,10 +276,18 @@ export function OperatorPage({ app }: any) {
                 <Input min="1" type="number" value={app.managedSlotId}
                   onChange={(event: any) => app.setManagedSlotId(event.target.value)} />
               </Label>
-              <Label className="checkbox-label">
-                <Checkbox checked={app.managedSlotAvailable}
-                  onChange={(event: any) => app.setManagedSlotAvailable(event.target.checked)} />
-                <span>Available for reservation</span>
+              <Label>
+                <span>Availability</span>
+                <Select
+                  value={app.managedSlotAvailable ? "allowed" : "not-allowed"}
+                  onValueChange={(value) => app.setManagedSlotAvailable(value === "allowed")}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="allowed">Allowed</SelectItem>
+                    <SelectItem value="not-allowed">Not allowed</SelectItem>
+                  </SelectContent>
+                </Select>
               </Label>
             </div>
             <Button onClick={() => app.run("Set parking place availability", () =>
