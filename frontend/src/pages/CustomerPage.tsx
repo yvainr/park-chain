@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, ChevronDown, ChevronUp, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronUp, CircleCheck, CircleX, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
 import { membershipManagerAbi, parkingLedgerAbi } from "../abi/contracts";
 import {
   Badge,
@@ -236,7 +236,7 @@ function reservationDropdownStatus(reservation: any, app: any, nowSeconds: numbe
 
 export function CustomerPage({ app }: any) {
   const [isCheckoutRatingOpen, setIsCheckoutRatingOpen] = useState(false);
-  const [isRateRatingOpen, setIsRateRatingOpen] = useState(false);
+  const [isSlotCalendarOpen, setIsSlotCalendarOpen] = useState(false);
   const [nowSeconds, setNowSeconds] = useState(Math.floor(Date.now() / 1000));
   const [operatorRatings, setOperatorRatings] = useState<Record<string, { average: number; count: number }>>({});
   const selectedOperatorKnown = app.registeredOperators.some(
@@ -247,7 +247,6 @@ export function CustomerPage({ app }: any) {
       ? app.registeredOperators
       : [{ id: app.operatorId, name: `Operator #${app.operatorId}`, wallet: "" }, ...app.registeredOperators];
   const activeMembershipTiers = app.membershipTiers.filter((tier: any) => tier.active);
-  const selectedOperator = operatorOptions.find((operator: any) => operator.id.toString() === app.operatorId);
   const accountLoaded = app.memberSummary.active !== "-";
   const isMemberActive = String(app.memberSummary.active).toLowerCase() === "true";
   const memberTier = app.membershipTiers.find((tier: any) => tier.id.toString() === app.memberSummary.tier);
@@ -257,11 +256,23 @@ export function CustomerPage({ app }: any) {
   const availableSlot = app.availableSlotPreview ?? { error: "", loading: false, slotId: "" };
   const hasAvailableSlot = availableSlot.slotId && availableSlot.slotId !== "0" && !availableSlot.error;
   const operatorRatingKey = operatorOptions.map((operator: any) => operator.id.toString()).join(",");
-  const reservationProgress = reservationTimeState(app.selectedReservation, app, nowSeconds);
+  const currentReservations = app.memberReservations.filter(
+    (reservation: any) => reservation.status === 0 || reservation.status === 1,
+  );
+  const selectedReservationIsCurrent =
+    Boolean(app.selectedReservation) && (app.selectedReservation.status === 0 || app.selectedReservation.status === 1);
+  const hasCurrentReservations = currentReservations.length > 0 || selectedReservationIsCurrent;
+  const selectedCurrentReservationId = currentReservations.some(
+    (reservation: any) => reservation.id.toString() === app.reservationId,
+  )
+    ? app.reservationId
+    : "";
+  const reservationProgress = selectedReservationIsCurrent
+    ? reservationTimeState(app.selectedReservation, app, nowSeconds)
+    : null;
 
   useEffect(() => {
     setIsCheckoutRatingOpen(false);
-    setIsRateRatingOpen(false);
   }, [app.reservationId]);
 
   useEffect(() => {
@@ -343,7 +354,7 @@ export function CustomerPage({ app }: any) {
     app.setTierActive(tier.active);
   }
 
-  const hasReservationPriority = app.memberReservations.length > 0 || app.reservationId !== "0";
+  const hasReservationPriority = hasCurrentReservations;
 
   return (
     <div className={`customer-flow${hasReservationPriority ? " has-reservation-priority" : ""}`}>
@@ -422,7 +433,7 @@ export function CustomerPage({ app }: any) {
                       onClick={() => selectMembershipTier(tier.id.toString())}
                     >
                       <strong>{tier.name}</strong>
-                      <span>{tier.priceWei.toString()} wei</span>
+                      <span className="customer-tier-price">{tier.priceWei.toString()} wei</span>
                       <small>
                         {tier.monthlyCredits.toString()} credits - {tier.monthlyHourCap.toString()} h / month
                       </small>
@@ -487,10 +498,6 @@ export function CustomerPage({ app }: any) {
                 <CalendarClock aria-hidden="true" size={18} />
                 <div>
                   <CardTitle>Book a Slot</CardTitle>
-                  <CardDescription>
-                    {selectedOperator ? selectedOperator.name : "Select an operator"} -{" "}
-                    {app.slotCalendar.dateLabel || "choose a date"}
-                  </CardDescription>
                 </div>
               </div>
               <Button
@@ -556,15 +563,18 @@ export function CustomerPage({ app }: any) {
                   />
                 </Label>
                 <div className="customer-booking-submit">
-                  <div className="customer-auto-slot">
-                    <span>Free slot</span>
-                    {availableSlot.loading && <Badge variant="secondary">Checking</Badge>}
+                  <div className="customer-free-slot-status">
+                    {availableSlot.loading && <Badge variant="secondary">Checking free slot</Badge>}
                     {!availableSlot.loading && hasAvailableSlot && (
-                      <Badge variant="success">Slot {availableSlot.slotId}</Badge>
+                      <Badge variant="success">
+                        <CircleCheck aria-hidden="true" size={14} />
+                        Free slot found
+                      </Badge>
                     )}
                     {!availableSlot.loading && !hasAvailableSlot && (
-                      <Badge variant={availableSlot.error ? "error" : "secondary"}>
-                        {availableSlot.error ? "Unavailable" : "Pending"}
+                      <Badge variant="error">
+                        <CircleX aria-hidden="true" size={14} />
+                        Free slot not found
                       </Badge>
                     )}
                   </div>
@@ -598,115 +608,140 @@ export function CustomerPage({ app }: any) {
               </div>
 
               <div className="slot-calendar-panel customer-calendar-panel">
-                <div className="slot-calendar-toolbar">
-                  <div>
-                    <strong>Available slots</strong>
-                    <span>
+                <div className="dev-panel-header slot-calendar-toolbar">
+                  <div className="dev-panel-heading">
+                    <div className="dev-panel-title-row">
+                      <CardTitle>Available slots</CardTitle>
+                      {app.slotCalendar.loading && <Badge variant="secondary">Loading</Badge>}
+                      {app.slotCalendar.error && <Badge variant="error">Unavailable</Badge>}
+                    </div>
+                    <CardDescription>
                       {app.slotCalendar.capacity} slots on {app.slotCalendar.dateLabel || "selected date"}
-                    </span>
+                    </CardDescription>
                   </div>
-                  {app.slotCalendar.loading && <Badge variant="secondary">Loading</Badge>}
-                  {app.slotCalendar.error && <Badge variant="error">Unavailable</Badge>}
+                  <Button
+                    variant="ghost"
+                    className="dev-panel-toggle slot-calendar-toggle-button"
+                    aria-expanded={isSlotCalendarOpen}
+                    onClick={() => setIsSlotCalendarOpen((open) => !open)}
+                  >
+                    {isSlotCalendarOpen ? "Hide" : "Show"}
+                    {isSlotCalendarOpen ? <ChevronUp aria-hidden="true" size={16} /> : <ChevronDown aria-hidden="true" size={16} />}
+                  </Button>
                 </div>
-                {app.slotCalendar.error && <p className="slot-calendar-error">{app.slotCalendar.error}</p>}
-                {!app.slotCalendar.error && app.slotCalendar.slots.length === 0 && (
-                  <p className="slot-calendar-empty">No configured slots for this operator and category.</p>
-                )}
-                {app.slotCalendar.slots.length > 0 && (
-                  <Table className="slot-calendar-table">
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="slot-calendar-time-head">Time</TableHead>
-                        {app.slotCalendar.slots.map((slotID: bigint) => (
-                          <TableHead key={slotID.toString()} className="slot-calendar-slot-head">
-                            Slot {slotID.toString()}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Array.from({ length: CALENDAR_ROWS }, (_value, row) => {
-                        const rowStart = app.slotCalendar.dayStart + BigInt(row) * app.halfHourSeconds;
-                        return (
-                          <TableRow key={row}>
-                            <TableCell className="slot-calendar-time-cell">{formatRowTime(row)}</TableCell>
-                            {app.slotCalendar.slots.map((slotID: bigint) => {
-                              const reservation = reservationForSlotRow(slotID, row, app);
-                              if (reservation) {
-                                return (
-                                  <TableCell
-                                    key={slotID.toString()}
-                                    className="slot-calendar-booked-cell"
-                                    rowSpan={reservationRowSpan(reservation, app)}
-                                  >
-                                    <button
-                                      type="button"
-                                      className="slot-calendar-booking"
-                                      onClick={() =>
-                                        app.run("Load reservation", () =>
-                                          app.loadReservation(toUint(reservation.id.toString(), "Reservation ID")),
-                                        )
-                                      }
-                                      aria-label={`Load reservation ${reservation.id.toString()}`}
-                                    >
-                                      <strong>
-                                        {app.formatBerlinTime(reservation.startTime)} -{" "}
-                                        {app.formatBerlinTime(reservationEndTime(reservation, app))}
-                                      </strong>
-                                      <span>Reservation #{reservation.id.toString()}</span>
-                                    </button>
-                                  </TableCell>
-                                );
-                              }
-
-                              if (isCoveredByReservation(slotID, row, app)) return null;
-
-                              return (
-                                <TableCell key={slotID.toString()} className="slot-calendar-free-cell">
-                                  <button
-                                    type="button"
-                                    className="slot-calendar-free-button"
-                                    aria-label={`Use ${formatRowTime(row)} as the start time`}
-                                    onClick={() => app.selectCalendarStartTime(rowStart)}
-                                  />
-                                </TableCell>
-                              );
-                            })}
+                <div
+                  className={`slot-calendar-content${isSlotCalendarOpen ? " is-open" : ""}`}
+                  aria-hidden={!isSlotCalendarOpen}
+                  inert={!isSlotCalendarOpen}
+                >
+                  <div className="slot-calendar-content-inner">
+                    {app.slotCalendar.error && <p className="slot-calendar-error">{app.slotCalendar.error}</p>}
+                    {!app.slotCalendar.error && app.slotCalendar.slots.length === 0 && (
+                      <p className="slot-calendar-empty">No configured slots for this operator and category.</p>
+                    )}
+                    {app.slotCalendar.slots.length > 0 && (
+                      <Table className="slot-calendar-table">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="slot-calendar-time-head">Time</TableHead>
+                            {app.slotCalendar.slots.map((slotID: bigint) => (
+                              <TableHead key={slotID.toString()} className="slot-calendar-slot-head">
+                                Slot {slotID.toString()}
+                              </TableHead>
+                            ))}
                           </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                )}
+                        </TableHeader>
+                        <TableBody>
+                          {Array.from({ length: CALENDAR_ROWS }, (_value, row) => {
+                            const rowStart = app.slotCalendar.dayStart + BigInt(row) * app.halfHourSeconds;
+                            return (
+                              <TableRow key={row}>
+                                <TableCell className="slot-calendar-time-cell">{formatRowTime(row)}</TableCell>
+                                {app.slotCalendar.slots.map((slotID: bigint) => {
+                                  const reservation = reservationForSlotRow(slotID, row, app);
+                                  if (reservation) {
+                                    return (
+                                      <TableCell
+                                        key={slotID.toString()}
+                                        className="slot-calendar-booked-cell"
+                                        rowSpan={reservationRowSpan(reservation, app)}
+                                      >
+                                        <button
+                                          type="button"
+                                          className="slot-calendar-booking"
+                                          onClick={() =>
+                                            app.run("Load reservation", () =>
+                                              app.loadReservation(toUint(reservation.id.toString(), "Reservation ID")),
+                                            )
+                                          }
+                                          aria-label={`Load reservation ${reservation.id.toString()}`}
+                                        >
+                                          <strong>
+                                            {app.formatBerlinTime(reservation.startTime)} -{" "}
+                                            {app.formatBerlinTime(reservationEndTime(reservation, app))}
+                                          </strong>
+                                          <span>Reservation #{reservation.id.toString()}</span>
+                                        </button>
+                                      </TableCell>
+                                    );
+                                  }
+
+                                  if (isCoveredByReservation(slotID, row, app)) return null;
+
+                                  return (
+                                    <TableCell key={slotID.toString()} className="slot-calendar-free-cell">
+                                      <button
+                                        type="button"
+                                        className="slot-calendar-free-button"
+                                        aria-label={`Use ${formatRowTime(row)} as the start time`}
+                                        onClick={() => app.selectCalendarStartTime(rowStart)}
+                                      />
+                                    </TableCell>
+                                  );
+                                })}
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
+                </div>
               </div>
             </CardContent>
               </Card>
             </div>
 
             <aside className="customer-side-stack">
-              <Card className="customer-workflow-card customer-current-reservation-card">
+              <Card
+                className={`customer-workflow-card customer-current-reservation-card${
+                  hasCurrentReservations ? "" : " is-empty-mobile"
+                }`}
+              >
             <CardHeader>
               <div className="customer-section-title">
                 <Ticket aria-hidden="true" size={18} />
                 <div>
                   <CardTitle>Current Reservation</CardTitle>
-                  <CardDescription>{app.reservationSummary}</CardDescription>
+                  <CardDescription>
+                    {selectedReservationIsCurrent ? app.reservationSummary : "No running or planned reservation"}
+                  </CardDescription>
                 </div>
               </div>
               <Badge
                 className="customer-reservation-status-badge"
-                variant={app.canUseReservedActions || app.canCheckOutReservation ? "success" : "secondary"}
+                variant={selectedReservationIsCurrent && (app.canUseReservedActions || app.canCheckOutReservation) ? "success" : "secondary"}
               >
-                {app.reservationStatusLabel}
+                {selectedReservationIsCurrent ? app.reservationStatusLabel : "No current reservation"}
               </Badge>
             </CardHeader>
             <CardContent className="tab-panel">
               <div className="customer-reservation-load">
                 <Label>
                   <span>Reservation</span>
-                  {app.memberReservations.length > 0 ? (
+                  {currentReservations.length > 0 ? (
                     <Select
-                      value={app.reservationId}
+                      value={selectedCurrentReservationId}
                       onValueChange={(value: string) =>
                         app.run("Load reservation", () => app.loadReservation(toUint(value, "Reservation ID")))
                       }
@@ -715,7 +750,7 @@ export function CustomerPage({ app }: any) {
                         <SelectValue placeholder="Select a reservation..." />
                       </SelectTrigger>
                       <SelectContent>
-                        {app.memberReservations.map((reservation: any) => {
+                        {currentReservations.map((reservation: any) => {
                           const dropdownStatus = reservationDropdownStatus(reservation, app, nowSeconds);
                           return (
                             <SelectItem key={reservation.id.toString()} value={reservation.id.toString()}>
@@ -739,7 +774,7 @@ export function CustomerPage({ app }: any) {
                       </SelectContent>
                     </Select>
                   ) : (
-                    <p className="customer-muted-copy">No reservations yet.</p>
+                    <p className="customer-muted-copy">No running or planned reservations.</p>
                   )}
                 </Label>
                 <Button
@@ -774,7 +809,7 @@ export function CustomerPage({ app }: any) {
               )}
 
               <div className="actions customer-reservation-actions">
-                {app.canUseReservedActions && (
+                {selectedReservationIsCurrent && app.canUseReservedActions && (
                   <>
                     <Button
                       onClick={() =>
@@ -823,7 +858,7 @@ export function CustomerPage({ app }: any) {
                   </>
                 )}
 
-                {app.canCheckOutReservation && (
+                {selectedReservationIsCurrent && app.canCheckOutReservation && (
                   <>
                     {isCheckoutRatingOpen && (
                       <div className="customer-rating-panel">
@@ -857,41 +892,7 @@ export function CustomerPage({ app }: any) {
                   </>
                 )}
 
-                {app.canRateReservation && (
-                  <>
-                    {isRateRatingOpen && (
-                      <div className="customer-rating-panel">
-                        <span>Rating</span>
-                        <p>Please rate the service.</p>
-                        <StarRatingSelector value={app.checkoutRating} onChange={app.setCheckoutRating} />
-                      </div>
-                    )}
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        if (!isRateRatingOpen) {
-                          setIsRateRatingOpen(true);
-                          return;
-                        }
-
-                        return app.run("Rate reservation", async () => {
-                          const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "rateReservation", [
-                            toUint(app.reservationId, "Reservation ID"),
-                            toUint(app.checkoutRating, "Rating"),
-                          ]);
-                          await app.refreshSelectedReservation();
-                          await app.refreshMemberReservations();
-                          setIsRateRatingOpen(false);
-                          return result;
-                        });
-                      }}
-                    >
-                      {isRateRatingOpen ? "Submit Rating" : "Rate"}
-                    </Button>
-                  </>
-                )}
-
-                {!app.canUseReservedActions && !app.canCheckOutReservation && !app.canRateReservation && (
+                {(!selectedReservationIsCurrent || (!app.canUseReservedActions && !app.canCheckOutReservation)) && (
                   <p className="customer-muted-copy">Reserve or load an active booking.</p>
                 )}
               </div>

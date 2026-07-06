@@ -1,22 +1,31 @@
 import { Badge, Button } from "../components/ui";
 
 export function LoginPage({ app }: any) {
+  const isWalletConnected = Boolean(app.account);
+
   return (
     <main className="login-shell">
-      <section className="login-panel">
+      <section className={`login-panel${isWalletConnected ? " is-wallet-connected" : ""}`}>
+        <img className="login-logo" src="/park-chain-logo-no-background.svg" alt="ParkChain" />
+
         <div className="login-copy">
-          <Badge>ParkChain</Badge>
-          <h1>Sign in to your workspace</h1>
+          <h1>Sign in</h1>
           <p>Connect your wallet, then choose the interface authorized for that on-chain account.</p>
         </div>
 
         <div className="login-actions">
-          <Button onClick={() => app.run("Connect wallet", app.connect)}>
-            {app.account ? `${app.account.slice(0, 6)}...${app.account.slice(-4)}` : "Connect Wallet"}
-          </Button>
-          <Badge variant={app.account ? "success" : "secondary"}>
-            {app.account ? "Wallet connected" : "Wallet disconnected"}
-          </Badge>
+          {isWalletConnected ? (
+            <Badge className="login-connected-badge" variant="success">
+              <span>Wallet connected</span>
+              <small>
+                {app.account.slice(0, 6)}...{app.account.slice(-4)}
+              </small>
+            </Badge>
+          ) : (
+            <Button className="login-connect-button" onClick={() => app.run("Connect wallet", app.connect)}>
+              Connect Wallet
+            </Button>
+          )}
         </div>
 
         <button
@@ -57,8 +66,6 @@ export function LoginPage({ app }: any) {
             Checking for additional wallet permissions…
           </p>
         )}
-
-        <pre className="login-output">{app.output}</pre>
       </section>
     </main>
   );

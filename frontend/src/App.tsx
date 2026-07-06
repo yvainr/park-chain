@@ -1221,18 +1221,31 @@ export function App() {
 
   return (
     <main className="app-shell">
+      {role === "customer" && (
+        <img className="customer-page-logo" src="/park-chain-logo-no-background.svg" alt="ParkChain" />
+      )}
       <section className="hero">
         <div className="hero-copy">
-          <div className="hero-badge-row">
-            <Badge>ParkChain MVP</Badge>
-            {allSystemsConnected && (
+          {role !== "customer" && (
+            <div className="hero-badge-row">
+              <Badge>ParkChain MVP</Badge>
+              {allSystemsConnected && (
+                <Badge variant="success">
+                  <CircleCheck aria-hidden="true" size={16} />
+                  <div>&nbsp;All systems connected</div>
+                </Badge>
+              )}
+            </div>
+          )}
+          <div className={`hero-title-row${role === "customer" ? " customer-hero-title-row" : ""}`}>
+            <h1>{roleTitle(role)}</h1>
+            {role === "customer" && allSystemsConnected && (
               <Badge variant="success">
                 <CircleCheck aria-hidden="true" size={16} />
                 <div>&nbsp;All systems connected</div>
               </Badge>
             )}
           </div>
-          <h1>{roleTitle(role)}</h1>
           {role !== "customer" && (
             <p>
               {role === "admin" && "Manage platform configuration, operators, memberships, and treasury settings."}
