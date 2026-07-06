@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 880" xmlns:bx="https://boxy-svg.com">
+  <defs>
+    <linearGradient id="parkchain-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b59c3"></stop>
+      <stop offset="0.48" stop-color="#253c78"></stop>
+      <stop offset="1" stop-color="#d36582"></stop>
+    </linearGradient>
+  </defs>
+  <bx:title id="title">ParkChain logo</bx:title>
+  <desc id="desc">A rounded square ParkChain mark with a parking P and electric charging bolt.</desc>
+  <path d="M 240 679.107 L 240 328.694 C 240 274.964 283.607 231.356 337.338 231.356 L 525.003 231.356 C 599.758 231.356 660.497 292.095 660.497 366.85 C 660.497 441.605 599.758 502.343 525.003 502.343 L 294.509 502.343" fill="none" stroke-linecap="round" stroke-linejoin="round" style="stroke-width: 40px; stroke: rgb(0, 0, 0);"></path>
+  <path d="M 547.585 266.398 L 482.953 419.023 L 556.151 419.023 L 471.273 683.001 L 637.136 369.965 L 560.824 369.965 L 611.439 266.398 L 547.585 266.398 Z" style="stroke-width: 1; fill: rgb(255, 182, 71);"></path>
+</svg>

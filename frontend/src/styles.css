@@ -65,16 +65,26 @@ p {
   width: min(960px, 100%);
   display: grid;
   gap: 22px;
+  justify-items: center;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 28px;
+  text-align: center;
   background: #ffffff;
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+}
+
+.login-logo {
+  width: clamp(86px, 10vw, 118px);
+  aspect-ratio: 1;
+  display: block;
+  object-fit: contain;
 }
 
 .login-copy {
   display: grid;
   gap: 12px;
+  justify-items: center;
   max-width: 640px;
 }
 
@@ -95,18 +105,143 @@ p {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 10px;
+}
+
+.login-actions {
+  width: min(440px, 100%);
+}
+
+.login-actions .login-connect-button {
+  position: relative;
+  overflow: hidden;
+  width: min(360px, 100%);
+  min-height: 58px;
+  display: inline-flex;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 28px;
+  font-size: 17px;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.14);
+  transform-origin: center;
+  transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    min-height 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    padding 420ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 240ms ease,
+    background 240ms ease,
+    box-shadow 260ms ease,
+    transform 260ms ease;
+}
+
+.login-connected-badge {
+  position: relative;
+  overflow: hidden;
+  width: min(230px, 100%);
+  min-height: 48px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  border-color: #bbf7d0;
+  padding: 7px 18px;
+  text-align: center;
+  box-shadow: 0 10px 22px rgba(22, 163, 74, 0.16);
+  transform-origin: center;
+  animation: login-wallet-connected 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.login-actions .login-connect-button::before,
+.login-connected-badge::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.18) 34%, rgba(255, 255, 255, 0.6) 48%, transparent 62%);
+  opacity: 0;
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+.login-actions .login-connect-button > span,
+.login-actions .login-connect-button > small,
+.login-connected-badge > span,
+.login-connected-badge > small {
+  position: relative;
+  z-index: 1;
+}
+
+.login-connected-badge > span {
+  color: #166534;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.login-connected-badge > small {
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.login-connected-badge::before {
+  animation: login-wallet-shine 960ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+@keyframes login-wallet-connected {
+  0% {
+    width: min(360px, 100%);
+    min-height: 58px;
+    opacity: 0.96;
+    transform: translateY(0) scale(1);
+  }
+
+  58% {
+    width: min(250px, 100%);
+    min-height: 50px;
+    opacity: 1;
+    transform: translateY(-1px) scale(1.015);
+  }
+
+  100% {
+    width: min(230px, 100%);
+    min-height: 48px;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes login-wallet-shine {
+  0% {
+    opacity: 0;
+    transform: translateX(-140%);
+  }
+
+  28% {
+    opacity: 0.75;
+  }
+
+  68% {
+    opacity: 0.45;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(140%);
+  }
 }
 
 .role-card {
   min-height: 168px;
   display: grid;
   align-content: start;
+  justify-items: center;
   gap: 10px;
   border: 1px solid #dbe3ef;
   border-radius: 8px;
   padding: 18px;
-  text-align: left;
+  text-align: center;
   color: #0f172a;
   background: #f8fafc;
   cursor: pointer;
@@ -228,11 +363,33 @@ p {
   max-width: 720px;
 }
 
+.customer-page-logo {
+  width: clamp(64px, 7vw, 88px);
+  aspect-ratio: 1;
+  display: block;
+  justify-self: left;
+  object-fit: contain;
+  /* margin: 0 auto 4px; */
+}
+
 .hero-badge-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.hero-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.customer-hero-title-row .ui-badge {
+  min-height: 28px;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .hero h1 {
@@ -566,8 +723,8 @@ p {
 
 .dev-panel-header {
   align-items: flex-start;
-  min-height: 112px;
-  padding-bottom: 20px;
+  min-height: 100px;
+  /* padding-bottom: 20px; */
 }
 
 .dev-panel-heading {
@@ -818,6 +975,10 @@ p {
   display: block;
 }
 
+.ui-select-item:has(.reservation-option-row) .ui-select-item-text {
+  flex: 1 1 auto;
+}
+
 .operator-option-row {
   min-width: 0;
   width: 100%;
@@ -886,6 +1047,66 @@ p {
 }
 
 .ui-select-trigger .operator-option-rating small {
+  display: none;
+}
+
+.reservation-option-row {
+  display: grid;
+  justify-items: space-between;
+  position: relative;
+  min-width: 100%;
+  width: 100%;
+  grid-template-columns: 3fr 1fr;
+  gap: 8px;
+}
+
+.reservation-option-main {
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.reservation-option-badge {
+  display: flex;
+  justify-self: flex-end;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.reservation-option-badge-created {
+  border-color: #d7e7ff;
+  color: #3f6fb5;
+  background: #f6f9ff;
+}
+
+.reservation-option-badge-running {
+  border-color: #bbf7d0;
+  color: #15803d;
+  background: #f0fdf4;
+}
+
+.reservation-option-badge-checked-out {
+  border-color: #cbd5e1;
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.reservation-option-badge-canceled {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.ui-select-trigger .reservation-option-badge {
   display: none;
 }
 
@@ -1332,7 +1553,7 @@ pre {
 
 .slot-calendar-table .ui-table-head,
 .slot-calendar-table .ui-table-cell {
-  height: 28px;
+  height: 34px;
   min-width: 150px;
   border-right: 1px solid #e2e8f0;
   padding: 0;
@@ -1348,7 +1569,7 @@ pre {
   position: sticky;
   z-index: 3;
   top: 0;
-  height: 54px;
+  height: 48px;
   padding: 8px;
   color: #0f172a;
   background: #f8fafc;
@@ -1797,6 +2018,12 @@ pre {
   font-weight: 750;
 }
 
+.customer-tier-price {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .customer-primary-actions .ui-button,
 .customer-booking-submit .ui-button,
 .customer-reservation-actions .ui-button {
@@ -1859,40 +2086,35 @@ pre {
   justify-content: center;
 }
 
-.customer-auto-slot {
-  flex: 0 0 160px;
+.customer-free-slot-status {
+  flex: 0 0 auto;
   height: 40px;
   min-height: 40px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 0 10px;
-  background: #f8fafc;
+  justify-content: flex-end;
 }
 
-.customer-auto-slot > span {
+.customer-free-slot-status .ui-badge {
   flex: 0 0 auto;
-  white-space: nowrap;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
+  gap: 5px;
+  min-height: 32px;
 }
 
-.customer-auto-slot .ui-badge {
+.customer-free-slot-status .ui-badge > svg {
   flex: 0 0 auto;
-  justify-self: start;
 }
 
 .customer-calendar-panel {
   border-top: 1px solid #e2e8f0;
-  padding-top: 16px;
+  border-radius: 8px;
+  padding: 16px 20px;
+  background: rgb(248, 247, 244);
+  /* opacity: 00.8; */
 }
 
 .slot-calendar-toolbar {
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1905,9 +2127,26 @@ pre {
   gap: 3px;
 }
 
-.slot-calendar-toolbar strong {
-  color: #0f172a;
-  font-size: 14px;
+.slot-calendar-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: scaleY(0.96) translateY(-8px);
+  transform-origin: top center;
+  transition: grid-template-rows 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 180ms ease,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.slot-calendar-content.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: scaleY(1) translateY(0);
+}
+
+.slot-calendar-content-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .customer-reservation-load {
@@ -2182,13 +2421,66 @@ pre {
 
   .hero,
   .workspace-header,
-  .category-card,
-  .slot-calendar-toolbar {
+  .category-card {
     display: grid;
+  }
+
+  .customer-page-logo {
+    width: 92px;
+    margin-bottom: 0;
+  }
+
+  .customer-hero-title-row {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .customer-calendar-panel {
+    padding: 14px;
+  }
+
+  .slot-calendar-toolbar {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .slot-calendar-toolbar .dev-panel-heading {
+    flex: 1 1 auto;
+  }
+
+  .slot-calendar-toolbar .ui-card-title {
+    font-size: 18px;
+  }
+
+  .slot-calendar-toggle-button {
+    width: auto;
+    min-width: 76px;
+  }
+
+  .slot-calendar-panel .ui-table-container {
+    max-width: calc(100vw - 52px);
+    max-height: 62vh;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .slot-calendar-table .ui-table-head,
+  .slot-calendar-table .ui-table-cell {
+    min-width: 112px;
+  }
+
+  .slot-calendar-table .slot-calendar-time-head,
+  .slot-calendar-table .slot-calendar-time-cell {
+    min-width: 62px;
+    width: 62px;
   }
 
   .login-panel {
     padding: 20px;
+  }
+
+  .login-logo {
+    width: 112px;
   }
 
   .customer-login-card {
@@ -2264,10 +2556,78 @@ pre {
     justify-content: stretch;
   }
 
-  .customer-auto-slot,
+  .customer-free-slot-status,
   .customer-booking-submit-action,
   .customer-booking-submit-action .ui-button {
     width: 100%;
+  }
+
+  .customer-free-slot-status {
+    justify-content: stretch;
+  }
+
+  .customer-free-slot-status .ui-badge {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .customer-current-reservation-card.is-empty-mobile {
+    display: none;
+  }
+
+  .customer-modal-backdrop {
+    padding: 12px;
+  }
+
+  .customer-access-modal {
+    width: min(100%, 520px);
+    max-height: calc(100vh - 24px);
+    border-radius: 14px;
+  }
+
+  .customer-access-modal .ui-card-header {
+    gap: 10px;
+    padding: 18px 18px 0;
+  }
+
+  .customer-access-modal .ui-card-content {
+    padding: 18px;
+  }
+
+  .customer-access-modal .ui-card-title {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  .customer-access-modal .ui-card-description {
+    font-size: 17px;
+    line-height: 1.35;
+  }
+
+  .customer-access-modal .customer-tier-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .customer-access-modal .customer-tier-card {
+    min-height: 0;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .customer-access-modal .customer-tier-card strong {
+    font-size: 17px;
+    line-height: 1.15;
+  }
+
+  .customer-access-modal .customer-tier-card span {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .customer-access-modal .customer-tier-card small {
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   .tabs-list {
@@ -2281,5 +2641,15 @@ pre {
   .read-grid .ui-button,
   .customer-booking-submit .ui-button {
     width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .customer-access-modal .customer-tier-list {
+    grid-template-columns: 1fr;
+  }
+
+  .customer-access-modal .customer-tier-card span {
+    font-size: 13px;
   }
 }

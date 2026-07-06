@@ -110,6 +110,34 @@ export function AdminPage({ app }: any) {
     });
   }
 
+  function selectMembershipTier(tier: any) {
+    app.setTierId(tier.id.toString());
+    app.setTierName(tier.name);
+    app.setTierCredits(tier.monthlyCredits.toString());
+    app.setTierPriceWei(tier.priceWei.toString());
+    app.setTierHourCap(tier.monthlyHourCap.toString());
+    app.setTierActive(tier.active);
+  }
+
+  function startNewMembershipTier() {
+    const nextTierId =
+      app.membershipTiers.length === 0
+        ? 1n
+        : app.membershipTiers.reduce((highest: bigint, tier: any) => {
+            const id = BigInt(tier.id.toString());
+            return id > highest ? id : highest;
+          }, 0n) + 1n;
+
+    app.setTierId(nextTierId.toString());
+    app.setTierName("");
+    app.setTierCredits("0");
+    app.setTierPriceWei("0");
+    app.setTierHourCap("0");
+    app.setTierActive(true);
+  }
+
+  const selectedMembershipTier = app.membershipTiers.find((tier: any) => tier.id.toString() === app.tierId);
+
   return (
     <div className="dashboard-grid">
       <div className="stack">
@@ -412,6 +440,54 @@ export function AdminPage({ app }: any) {
                 </Button>
               </div>
             </section>
+
+            <section className="operator-action-block">
+              <div className="operator-action-heading">
+                <h3>Parking place availability</h3>
+                <p>Disable individual places that must not appear in member booking choices.</p>
+              </div>
+              <div className="grid two">
+                <Label>
+                  <span>Category</span>
+                  <Select value={app.categoryName} onValueChange={app.setCategoryName}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {app.categoryNames.map((name: string) => (
+                        <SelectItem key={name} value={name}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
+                <Label>
+                  <span>Slot number</span>
+                  <Input min="1" type="number" value={app.managedSlotId}
+                    onChange={(event: any) => app.setManagedSlotId(event.target.value)} />
+                </Label>
+                <Label>
+                  <span>Availability</span>
+                  <Select
+                    value={app.managedSlotAvailable ? "allowed" : "not-allowed"}
+                    onValueChange={(value) => app.setManagedSlotAvailable(value === "allowed")}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="allowed">Allowed</SelectItem>
+                      <SelectItem value="not-allowed">Not allowed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Label>
+              </div>
+              <Button onClick={() => app.run("Set parking place availability", () =>
+                app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
+                  toUint(app.operatorForCategoryId, "Active operator"),
+                  app.categoryHash,
+                  toUint(app.managedSlotId, "Slot number"),
+                  app.managedSlotAvailable,
+                ])
+              )}>
+                Save Place Availability
+              </Button>
+            </section>
           </CardContent>
         </Card>
 
@@ -424,9 +500,39 @@ export function AdminPage({ app }: any) {
             <section className="operator-action-block">
               <div className="operator-action-heading">
                 <h3>Define Tiers</h3>
-                <p> </p>
+                <p>Select an existing tier to edit it, or enter a new Tier ID to create another tier.</p>
               </div>
-              <div className="grid two">
+              <div className="grid three">
+                <Label>
+                  <span>Tier ID</span>
+                  <Input
+                    min="1"
+                    type="number"
+                    value={app.tierId}
+                    onChange={(event: any) => app.setTierId(event.target.value)}
+                  />
+                </Label>
+                <Label>
+                  <span>Existing tier</span>
+                  <Select
+                    value={selectedMembershipTier ? app.tierId : ""}
+                    onValueChange={(value: string) => {
+                      const tier = app.membershipTiers.find((candidate: any) => candidate.id.toString() === value);
+                      if (tier) selectMembershipTier(tier);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Existing membership tier">
+                      <SelectValue placeholder="Select a tier to edit..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {app.membershipTiers.map((tier: any) => (
+                        <SelectItem key={tier.id.toString()} value={tier.id.toString()}>
+                          #{tier.id.toString()} - {tier.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Label>
                 <Label>
                   <span>Name</span>
                   <Input value={app.tierName} onChange={(event: any) => app.setTierName(event.target.value)} />
@@ -467,39 +573,52 @@ export function AdminPage({ app }: any) {
                     })
                   }
                 >
-                  Create Tier
+                  {selectedMembershipTier ? `Update Tier #${app.tierId}` : `Create Tier #${app.tierId || "-"}`}
+                </Button>
+                <Button variant="secondary" onClick={startNewMembershipTier}>
+                  New Tier
                 </Button>
               </div>
-              <Label><span>Existing Membership Tiers</span></Label>
-                
-              <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>ParkCredits</TableHead>
-                      <TableHead>Hour Cap</TableHead>
-                      <TableHead>Price (wei)</TableHead>
-                      <TableHead>Active</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {app.membershipTiers.map((tier: any) => (
-                      <TableRow key={tier.id.toString()}>
-                        <TableCell>{tier.id.toString()}</TableCell>
-                        <TableCell>
-                          <strong>{tier.name}</strong>
-                        </TableCell>
-                        <TableCell>{tier.monthlyCredits.toString()}</TableCell>
-                        <TableCell>{tier.monthlyHourCap.toString()}</TableCell>
-                        <TableCell>{tier.priceWei.toString()}</TableCell>
-                        <TableCell>{tier.active ? "Yes" : "No"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <Label>
+                <span>Existing Membership Tiers</span>
+              </Label>
 
-              </section>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Name</TableHead>
+                    <TableHead>ParkCredits</TableHead>
+                    <TableHead>Hour Cap</TableHead>
+                    <TableHead>Price (wei)</TableHead>
+                    <TableHead>Active</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {app.membershipTiers.map((tier: any) => (
+                    <TableRow
+                      key={tier.id.toString()}
+                      className={tier.id.toString() === app.tierId ? "is-dirty" : ""}
+                    >
+                      <TableCell>{tier.id.toString()}</TableCell>
+                      <TableCell>
+                        <strong>{tier.name}</strong>
+                      </TableCell>
+                      <TableCell>{tier.monthlyCredits.toString()}</TableCell>
+                      <TableCell>{tier.monthlyHourCap.toString()}</TableCell>
+                      <TableCell>{tier.priceWei.toString()}</TableCell>
+                      <TableCell>{tier.active ? "Yes" : "No"}</TableCell>
+                      <TableCell>
+                        <Button variant="secondary" onClick={() => selectMembershipTier(tier)}>
+                          Edit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </section>
 
             <div className="grid two">
               <Label>

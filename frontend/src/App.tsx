@@ -392,6 +392,8 @@ export function App() {
   const [reservationStartTime, setReservationStartTime] = useState(formatBerlinDateTimeInput(Math.floor(Date.now() / 1000) + 3600));
   const [reservationDuration, setReservationDuration] = useState("2");
   const [checkoutRating, setCheckoutRating] = useState("5");
+  const [managedSlotId, setManagedSlotId] = useState("1");
+  const [managedSlotAvailable, setManagedSlotAvailable] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<ReturnType<typeof parseReservation> | null>(null);
   const [selectedReservationRated, setSelectedReservationRated] = useState(false);
   const [memberReservations, setMemberReservations] = useState<ReturnType<typeof parseReservation>[]>([]);
@@ -1114,6 +1116,8 @@ export function App() {
     logout,
     memberReadAddress,
     memberReservations,
+    managedSlotAvailable,
+    managedSlotId,
     memberSummary,
     membershipAddress,
     membershipTiers,
@@ -1176,6 +1180,8 @@ export function App() {
     setGracePeriodMinutes,
     setIsCustomerAccessOpen,
     setMonthKey,
+    setManagedSlotAvailable,
+    setManagedSlotId,
     setNoShowFee,
     setOperatorId,
     setOperatorForCategoryId,
@@ -1221,18 +1227,31 @@ export function App() {
 
   return (
     <main className="app-shell">
+      {role === "customer" && (
+        <img className="customer-page-logo" src="/park-chain-logo-no-background.svg" alt="ParkChain" />
+      )}
       <section className="hero">
         <div className="hero-copy">
-          <div className="hero-badge-row">
-            <Badge>ParkChain MVP</Badge>
-            {allSystemsConnected && (
+          {role !== "customer" && (
+            <div className="hero-badge-row">
+              <Badge>ParkChain MVP</Badge>
+              {allSystemsConnected && (
+                <Badge variant="success">
+                  <CircleCheck aria-hidden="true" size={16} />
+                  <div>&nbsp;All systems connected</div>
+                </Badge>
+              )}
+            </div>
+          )}
+          <div className={`hero-title-row${role === "customer" ? " customer-hero-title-row" : ""}`}>
+            <h1>{roleTitle(role)}</h1>
+            {role === "customer" && allSystemsConnected && (
               <Badge variant="success">
                 <CircleCheck aria-hidden="true" size={16} />
                 <div>&nbsp;All systems connected</div>
               </Badge>
             )}
           </div>
-          <h1>{roleTitle(role)}</h1>
           {role !== "customer" && (
             <p>
               {role === "admin" && "Manage platform configuration, operators, memberships, and treasury settings."}
