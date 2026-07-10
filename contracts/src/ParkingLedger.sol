@@ -326,6 +326,26 @@ contract ParkingLedger is Ownable {
         return reservations[reservationID];
     }
 
+    function getOperatorReservations(uint256 operatorID) external view
+    returns (Reservation[] memory)
+    {
+        uint256 count = 0;
+        for (uint256 i = 0; i < nextReservationID; i++) {
+            if (reservations[i].operatorID == operatorID) {
+                count++;
+            }
+        }
+        Reservation[] memory result = new Reservation[](count);
+        uint256 index = 0;
+        for (uint256 i = 0; i < nextReservationID; i++) {
+            if (reservations[i].operatorID == operatorID) {
+                result[index] = reservations[i];
+                index++;
+            }
+        }
+        return result;
+    }
+
     function getUsedHoursByCategory(
         address member,
         bytes32 category,

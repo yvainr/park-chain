@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { operatorRegistryAbi, operatorTreasuryAbi, parkingLedgerAbi } from "../abi/contracts";
+import { OperatorStatistics } from "../components/operator_statistics";
 import { ContractPanel, OutputPanel, SharedFields } from "../components/shared-panels";
 import {
   Badge,
@@ -409,6 +410,18 @@ export function OperatorPage({ app }: any) {
             >
               Withdraw
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Parking Statistics Dashboard</CardTitle>
+            <CardDescription>
+              Insights based on reservation data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <OperatorStatistics app={app} />
           </CardContent>
         </Card>
       </div>

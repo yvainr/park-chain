@@ -642,6 +642,72 @@ export const parkingLedgerAbi = [
     inputs: [{ name: "", type: "uint256" }],
     outputs: [{ name: "", type: "bool" }],
   },
+  {
+  inputs: [
+    {
+      internalType: "uint256",
+      name: "operatorID",
+      type: "uint256"
+    }
+  ],
+  name: "getOperatorReservations",
+  outputs: [
+    {
+      components: [
+        {
+          internalType: "uint256",
+          name: "reservationID",
+          type: "uint256"
+        },
+        {
+          internalType: "address",
+          name: "member",
+          type: "address"
+        },
+        {
+          internalType: "uint256",
+          name: "operatorID",
+          type: "uint256"
+        },
+        {
+          internalType: "bytes32",
+          name: "category",
+          type: "bytes32"
+        },
+        {
+          internalType: "uint256",
+          name: "startTime",
+          type: "uint256"
+        },
+        {
+          internalType: "uint256",
+          name: "duration",
+          type: "uint256"
+        },
+        {
+          internalType: "uint256",
+          name: "checkInTime",
+          type: "uint256"
+        },
+        {
+          internalType: "uint8",
+          name: "status",
+          type: "uint8"
+        },
+        {
+          internalType: "uint256",
+          name: "slotID",
+          type: "uint256"
+        }
+      ],
+      internalType: "struct ParkingLedger.Reservation[]",
+      name: "result",
+      type: "tuple[]"
+    }
+  ],
+  stateMutability: "view",
+  type: "function"
+},
 ] as const;
 
 export const operatorTreasuryAbi = [
