@@ -185,7 +185,7 @@ return (
     <div className="kpi-grid">
         <Card>
             <CardHeader>
-                <CardTitle>Total Reservations</CardTitle>
+                <strong>Total Reservations</strong>
             </CardHeader>
             <CardContent>
                 <h2>{stats.reservations}</h2>
@@ -194,16 +194,15 @@ return (
 
         <Card>
             <CardHeader>
-                <CardTitle>Booked Hours</CardTitle>
+                <strong>Booked Hours</strong>
             </CardHeader>
             <CardContent>
                 <h2>{stats.bookedHours}</h2>
             </CardContent>
         </Card>
-
         <Card>
             <CardHeader>
-                <CardTitle>Average Duration</CardTitle>
+                <strong>Average Duration</strong>
             </CardHeader>
             <CardContent>
                 <h2>{stats.averageDuration.toFixed(1)} h</h2>
@@ -212,7 +211,7 @@ return (
 
         <Card>
             <CardHeader>
-                <CardTitle>Most Popular Category</CardTitle>
+                <strong>Most Popular Category</strong>
             </CardHeader>
             <CardContent>
                 <h2>{stats.mostPopularCategory}</h2>

@@ -15,13 +15,12 @@ type Props = {
 };
 
 const COLORS = [
-    "#2563eb",
-    "#22c55e",
+    "#10263B",
     "#f59e0b",
-    "#ec4899",
-    "#8b5cf6",
-    "#06b6d4",
-    "#ef4444",
+    "#005A8C",
+    "#C5D6E5",
+    "#8C4F00",
+    "#8C8800",
 ];
 
 export function CategoryPieChart({ data }: Props) {

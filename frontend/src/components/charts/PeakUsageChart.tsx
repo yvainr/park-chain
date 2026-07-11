@@ -33,7 +33,7 @@ export function PeakUsageChart({ data }: Props) {
                 <Line
                     type="monotone"
                     dataKey="reservations"
-                    stroke="#2563eb"
+                    stroke="#f59e0b"
                     strokeWidth={3}
                     dot={{ r: 4 }}
                 />

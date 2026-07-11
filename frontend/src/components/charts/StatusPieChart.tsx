@@ -18,11 +18,11 @@ type Props = {
 };
 
 const COLORS = [
-    "#3b82f6", // Reserved
-    "#22c55e", // Checked In
-    "#06b6d4", // Checked Out
-    "#f59e0b", // Cancelled
-    "#ef4444", // No Show
+    "#10263B", // Reserved
+    "#C5D6E5", // Checked In
+    "#005A8C", // Checked Out
+    "#8C4F00", // Cancelled
+    "#f59e0b", // No Show
 ];
 
 export function StatusPieChart({ data }: Props) {

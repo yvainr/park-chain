@@ -35,7 +35,7 @@ export function NoShowChart({ value }: Props) {
 
                 <Bar
                     dataKey="value"
-                    fill="#dc2626"
+                    fill="#f59e0b"
                     radius={[8,8,0,0]}
                 />
 

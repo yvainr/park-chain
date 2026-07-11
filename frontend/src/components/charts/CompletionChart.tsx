@@ -35,7 +35,7 @@ export function CompletionChart({ value }: Props) {
 
                 <Bar
                     dataKey="value"
-                    fill="#16a34a"
+                    fill="#005A8C"
                     radius={[8,8,0,0]}
                 />
 
