@@ -26,7 +26,6 @@ const COLORS = [
 ];
 
 export function StatusPieChart({ data }: Props) {
-
     const chartData = [
         {
             name: "Reserved",
@@ -49,16 +48,12 @@ export function StatusPieChart({ data }: Props) {
             value: data.NoShow,
         },
     ].filter(item => item.value > 0);
-
     return (
-
         <ResponsiveContainer
             width="100%"
             height={320}
         >
-
             <PieChart>
-
                 <Pie
                     data={chartData}
                     dataKey="value"
@@ -66,26 +61,16 @@ export function StatusPieChart({ data }: Props) {
                     outerRadius={110}
                     label
                 >
-
                     {chartData.map((_, index) => (
-
                         <Cell
                             key={index}
                             fill={COLORS[index]}
                         />
-
                     ))}
-
                 </Pie>
-
                 <Tooltip />
-
                 <Legend />
-
             </PieChart>
-
         </ResponsiveContainer>
-
     );
-
 }

@@ -24,16 +24,12 @@ const COLORS = [
 ];
 
 export function CategoryPieChart({ data }: Props) {
-
     return (
-
         <ResponsiveContainer
             width="100%"
             height={320}
         >
-
             <PieChart>
-
                 <Pie
                     data={data}
                     dataKey="value"
@@ -41,26 +37,16 @@ export function CategoryPieChart({ data }: Props) {
                     outerRadius={110}
                     label
                 >
-
                     {data.map((_, index) => (
-
                         <Cell
                             key={index}
                             fill={COLORS[index % COLORS.length]}
                         />
-
                     ))}
-
                 </Pie>
-
                 <Tooltip />
-
                 <Legend />
-
             </PieChart>
-
         </ResponsiveContainer>
-
     );
-
 }

@@ -20,16 +20,13 @@ export function PeakUsageChart({ data }: Props) {
         <ResponsiveContainer width="100%" height={320}>
             <LineChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" />
-
                 <XAxis
                     dataKey="hour"
                     interval={1}
                 />
-
                 <YAxis allowDecimals={false} />
 
                 <Tooltip />
-
                 <Line
                     type="monotone"
                     dataKey="reservations"
