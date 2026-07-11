@@ -21,6 +21,14 @@ import { OperatorPage } from "./pages/OperatorPage";
 import type { CategoryName, UserRole } from "./types";
 
 export const CATEGORY_NAMES = ["standard", "disabled", "ev-charging", "motorbike", "family", "women"] as const;
+const categoryNameFromHash = (hash: string) => {
+    for (const category of CATEGORY_NAMES) {
+        if (categoryToBytes32(category as CategoryName, "") === hash) {
+            return category;
+        }
+    }
+    return hash.slice(0, 10) + "...";
+};
 export const PARK_CREDIT_ID = 1n;
 const BERLIN_TIME_ZONE = "Europe/Berlin";
 const HOUR_SECONDS = 3600n;
@@ -1099,6 +1107,7 @@ export function App() {
     categoryHashForName: (name: CategoryName) => categoryToBytes32(name, ""),
     categoryName,
     categoryNames: CATEGORY_NAMES,
+    categoryNameFromHash,
     categoryCapacity,
     connect,
     creditAddress,

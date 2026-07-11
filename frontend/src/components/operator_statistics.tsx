@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { parkingLedgerAbi } from "../abi/contracts";
 import { readContract, toUint } from "../lib/wallet";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui";
+import { PeakUsageChart } from "./charts/PeakUsageChart";
+import { CompletionChart } from "./charts/CompletionChart";
+import { NoShowChart } from "./charts/NoShowChart";
+import { StatusPieChart } from "./charts/StatusPieChart";
+import { CategoryPieChart } from "./charts/CategoryPieChart";
 
 type Statistics = {
     reservations: number;
@@ -10,6 +16,14 @@ type Statistics = {
     mostPopularCategory: string;
     noShowRate: number;
     peakHour: string;
+    categoryDistribution: {
+        name: string;
+        value: number;
+    }[];
+    hourlyDistribution: {
+        hour: string;
+        reservations: number;
+    }[];
     statusDistribution: {
         Reserved: number;
         CheckedIn: number;
@@ -28,6 +42,8 @@ export function OperatorStatistics({ app }: any) {
     mostPopularCategory: "-",
     noShowRate: 0,
     peakHour: "-",
+    categoryDistribution: [],
+    hourlyDistribution: [],
     statusDistribution: {
         Reserved: 0,
         CheckedIn: 0,
@@ -73,17 +89,16 @@ export function OperatorStatistics({ app }: any) {
           noShows++;
           break;
       }
-
       const category =
         app.categoryNameFromHash
           ? app.categoryNameFromHash(reservation.category)
           : reservation.category;
       categoryCounter[category] =
         (categoryCounter[category] ?? 0) + 1;
-      const startHour =
+      const hour =
         new Date(Number(reservation.startTime) * 1000).getHours();
-      hourCounter[startHour] =
-        (hourCounter[startHour] ?? 0) + 1;
+      hourCounter[hour] =
+        (hourCounter[hour] ?? 0) + 1;
     });
 
     let mostPopularCategory = "-";
@@ -127,22 +142,36 @@ export function OperatorStatistics({ app }: any) {
             reservations.length *
             100
           );
-    const statusDistribution = {
-        Reserved: reserved,
-        CheckedIn: checkedIn,
-        CheckedOut: checkedOut,
-        Cancelled: cancelled,
-        NoShow: noShows,
-    };
+    const categoryDistribution =
+      Object.entries(categoryCounter).map(
+          ([name, value]) => ({
+              name,
+              value,
+          })
+      );
+    const hourlyDistribution =
+      Array.from({ length: 24 }, (_, hour) => ({
+          hour: `${hour}:00`,
+          reservations:
+              hourCounter[hour] ?? 0,
+      }));
     setStats({
         reservations: reservations.length,
-        completionRate: completionRate,
+        completionRate,
         bookedHours,
         averageDuration,
         mostPopularCategory,
         noShowRate,
         peakHour,
-        statusDistribution,
+         statusDistribution: {
+            Reserved: reserved,
+            CheckedIn: checkedIn,
+            CheckedOut: checkedOut,
+            Cancelled: cancelled,
+            NoShow: noShows,
+        },
+        categoryDistribution,
+        hourlyDistribution,
     });
   }
     useEffect(() => {
@@ -150,77 +179,115 @@ export function OperatorStatistics({ app }: any) {
       loadStatistics();
     }
   }, [app.operatorId, app.categoryNames]);
-  return (
-    <div className="statistics-grid">
+return (
 
-      <div className="stat-card">
-        <h4>Total Reservations</h4>
-        <p>{stats.reservations}</p>
-      </div>
+<div className="statistics-dashboard">
+    <div className="kpi-grid">
+        <Card>
+            <CardHeader>
+                <CardTitle>Total Reservations</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <h2>{stats.reservations}</h2>
+            </CardContent>
+        </Card>
 
-      <div className="stat-card">
-        <h4>Completed Reservations</h4>
-        <p>{stats.completionRate}%</p>
-      </div>
+        <Card>
+            <CardHeader>
+                <CardTitle>Booked Hours</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <h2>{stats.bookedHours}</h2>
+            </CardContent>
+        </Card>
 
-      <div className="stat-card">
-        <h4>Booked Hours</h4>
-        <p>{stats.bookedHours}</p>
-      </div>
+        <Card>
+            <CardHeader>
+                <CardTitle>Average Duration</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <h2>{stats.averageDuration.toFixed(1)} h</h2>
+            </CardContent>
+        </Card>
 
-      <div className="stat-card">
-        <h4>Average Duration</h4>
-        <p>{stats.averageDuration.toFixed(1)} h</p>
-      </div>
-
-      <div className="stat-card">
-        <h4>Most Popular Category</h4>
-        <p>{stats.mostPopularCategory}</p>
-      </div>
-
-      <div className="stat-card">
-        <h4>No-Show Rate</h4>
-        <p>{stats.noShowRate}%</p>
-      </div>
-
-      <div className="stat-card">
-        <h4>Peak Usage Time</h4>
-        <p>{stats.peakHour}</p>
-      </div>
-
-      <div className="stat-card status-card">
-        <h4>Status Distribution</h4>
-
-        <table>
-          <tbody>
-            <tr>
-              <td>Reserved</td>
-              <td>{stats.statusDistribution.Reserved}</td>
-            </tr>
-
-            <tr>
-              <td>Checked In</td>
-              <td>{stats.statusDistribution.CheckedIn}</td>
-            </tr>
-
-            <tr>
-              <td>Checked Out</td>
-              <td>{stats.statusDistribution.CheckedOut}</td>
-            </tr>
-
-            <tr>
-              <td>Cancelled</td>
-              <td>{stats.statusDistribution.Cancelled}</td>
-            </tr>
-
-            <tr>
-              <td>No Show</td>
-              <td>{stats.statusDistribution.NoShow}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
+        <Card>
+            <CardHeader>
+                <CardTitle>Most Popular Category</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <h2>{stats.mostPopularCategory}</h2>
+            </CardContent>
+        </Card>
     </div>
-  );
+
+    <Card>
+        <CardHeader>
+            <CardTitle>
+                Peak Usage Throughout the Day
+            </CardTitle>
+        </CardHeader>
+        <CardContent>
+            <PeakUsageChart
+                data={stats.hourlyDistribution}
+            />
+        </CardContent>
+    </Card>
+
+    <div className="chart-grid">
+        <Card>
+            <CardHeader>
+                <CardTitle>
+                    Reservation Status
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <StatusPieChart
+                    data={stats.statusDistribution}
+                />
+            </CardContent>
+        </Card>
+
+        <Card>
+            <CardHeader>
+                <CardTitle>
+                    Category Usage
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <CategoryPieChart
+                    data={stats.categoryDistribution}
+                />
+            </CardContent>
+        </Card>
+    </div>
+
+    <div className="chart-grid">
+        <Card>
+            <CardHeader>
+                <CardTitle>
+                    Completion Rate
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <CompletionChart
+                    value={stats.completionRate}
+                />
+            </CardContent>
+        </Card>
+
+        <Card>
+            <CardHeader>
+                <CardTitle>
+                    No Show Rate
+                </CardTitle>
+            </CardHeader>
+            <CardContent>
+                <NoShowChart
+                    value={stats.noShowRate}
+                />
+            </CardContent>
+        </Card>
+    </div>
+</div>
+);
 }

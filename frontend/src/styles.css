@@ -2653,3 +2653,42 @@ pre {
     font-size: 13px;
   }
 }
+
+.statistics-dashboard{
+    display:flex;
+    flex-direction:column;
+    gap:24px;
+}
+
+.kpi-grid{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:20px;
+}
+
+.chart-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.kpi-grid h2{
+    font-size:2rem;
+    font-weight:700;
+    text-align:center;
+}
+
+@media(max-width:900px){
+    .kpi-grid{
+        grid-template-columns:repeat(2,1fr);
+    }
+    .chart-grid{
+        grid-template-columns:1fr;
+    }
+}
+
+@media(max-width:600px){
+    .kpi-grid{
+        grid-template-columns:1fr;
+    }
+}
