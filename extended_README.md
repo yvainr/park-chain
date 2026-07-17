@@ -10,19 +10,20 @@ We worked closely together and had weekly meetings to discuss ParkChain, divide 
 | team member | work | cherry on top |
 | :--- | :--- | :--- |
 | **Gina** | smart contracts, graphics, frontend refinement, report | rating |
-| **Yan** | smart contracts, frontend UI, infrastructure, git integration, hardhat-tests, code-reviews | fee slots display, QR-code |
+| **Yan** | smart contracts, frontend UI, infrastructure, git integration, hardhat-tests, code-reviews | free slots display, QR-code |
 | **Vlad** | smart contracts, structure, git integration, hardhat-tests, frontend refinement | gas estimation |
 | **Emily** | smart contracts, poster, graphics, report | statistics |
 
 # Statement on the use of AI
 We used AI in the following ways:
-(i) ⁠Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for part of the development in form of explainations, code suggestions and debugging
 
-(ii) Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for elements of the ⁠frontend
+- ⁠Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for part of the development in form of explainations, code suggestions and debugging
 
-(iii) Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for ⁠Pull-Request Reviews
+- Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for elements of the ⁠frontend
 
-(iv)⁠ ⁠ChatGPT was used to suggest LaTeX for parts of the poster
+- Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for ⁠Pull-Request Reviews
+
+- ⁠ChatGPT was used to suggest LaTeX for parts of the poster
 
 # How to run ParkChain 
 see [README.md](https://github.com/yvainr/park-chain/blob/dev/README.md) and [TEST_RUN_README.md](https://github.com/yvainr/park-chain/blob/dev/TEST_RUN_README.md)
