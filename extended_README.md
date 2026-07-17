@@ -11,7 +11,8 @@ Vlad: smart contracts, structure, git integration, hardhat-tests, frontend refin
 Gina: smart contracts, graphics, frontend refinement 
 Yan: Frontend UI, infrastructure, git integration, hardhat-tests, smart contracts, code-reviews 
 
-Cherries:
+
+## Cherries:
 - ⁠Rating -- Gina
 - Statistics -- Emily
 - Gas estimation -- Vlad
@@ -29,7 +30,7 @@ We used AI in the following ways:
 (iv)⁠ ⁠ChatGPT was used to suggest LaTeX for parts of the poster
 
 # How to run ParkChain 
-see README.md and TEST_RUN_README.md
+see [README.md](https://github.com/yvainr/park-chain/blob/dev/README.md) and [TEST_RUN_README.md](https://github.com/yvainr/park-chain/blob/dev/TEST_RUN_README.md)
 
 # Reflection
 Our architecture consists of 6 smart contrcats with cleary seperated responsibilities. This makes the system easier to mantain, scale and extend.  
