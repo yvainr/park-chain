@@ -6,18 +6,13 @@ We are also proud of our UI. We tried to make the interaction with the blockchai
 # Work Distribution
 We worked closely together and had weekly meetings to discuss ParkChain, divide tasks and review each others work. Additionally, tasks where tracked using Linear where we could monitor others progress and coordinate development. 
 
-Emily: poster, graphics, smart contracts  
-Vlad: smart contracts, structure, git integration, hardhat-tests, frontend refinement 
-Gina: smart contracts, graphics, frontend refinement 
-Yan: Frontend UI, infrastructure, git integration, hardhat-tests, smart contracts, code-reviews 
 
-
-## Cherries:
-- ⁠Rating -- Gina
-- Statistics -- Emily
-- Gas estimation -- Vlad
-- ⁠Free slots display -- Yan
-- QR-Code -- Yan
+| team member | work | cherry on top |
+| :--- | :--- | :--- |
+| **Gina** | smart contracts, graphics, frontend refinement, report | rating |
+| **Yan** | smart contracts, frontend UI, infrastructure, git integration, hardhat-tests, code-reviews | fee slots display, QR-code |
+| **Vlad** | smart contracts, structure, git integration, hardhat-tests, frontend refinement | gas estimation |
+| **Emily** | smart contracts, poster, graphics, report | statistics |
 
 # Statement on the use of AI
 We used AI in the following ways:
