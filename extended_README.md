@@ -11,7 +11,7 @@ We worked closely together and held weekly meetings to discuss ParkChain, divide
 | **Gina** | smart contracts, graphics, frontend refinement, report | rating |
 | **Yan** | smart contracts, frontend UI, infrastructure, git integration, hardhat-tests, code-reviews | free slots display, QR-code |
 | **Vlad** | smart contracts, structure, git integration, hardhat-tests, frontend refinement | gas estimation |
-| **Emily** | smart contracts, poster, graphics, report | statistics |
+| **Emily** | smart contracts, posters, graphics, report | statistics |
 
 # Statement on the use of AI
 AI tools were used throughout the development process to support productivity, but all architectural decisions, implementations, testing and integration were carried out by the team.
