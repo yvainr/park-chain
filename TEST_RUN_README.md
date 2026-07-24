@@ -84,73 +84,40 @@ Generate the gas table with:
 npm run gas:contracts
 ```
 
-## 4. Start a Local Hardhat Blockchain
+## 4. Run the Complete Project Locally
 
-In terminal 1, from the repository root:
-
-```bash
-npm run node:contracts
-```
-
-Keep this terminal running.
-
-Hardhat starts a local Ethereum chain at:
-
-```text
-http://127.0.0.1:8545
-```
-
-The default chain ID is:
-
-```text
-31337
-```
-
-Hardhat prints local test accounts and private keys. These accounts have local test ETH.
-
-Common first local account:
-
-```text
-Address:
-0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
-
-Private key:
-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-```
-
-Common second local account:
-
-```text
-Address:
-0x70997970c51812dc3a010c7d01b50e0d17dc79c8
-
-Private key:
-0x59c6995e998f97a5a0044966f094538d6e2e8e9dffedc28397b0f6054d76b4
-```
-
-Never use local development private keys on real networks.
-
-## 5. Deploy Contracts Locally With Hardhat
-
-In terminal 2, from the repository root:
+From the repository root, start the blockchain, deploy the contracts, and launch the frontend with one command:
 
 ```bash
-npm run deploy:contracts:local
+npm start
 ```
 
-After successful deployment, Hardhat prints contract addresses like:
+The command:
 
-```text
-ParkCredit: 0x...
-MembershipManager: 0x...
-OperatorRegistry: 0x...
-OperatorTreasury: 0x...
-ParkingLedger: 0x...
+1. Starts a local Hardhat blockchain at `http://127.0.0.1:8545` with chain ID `31337`.
+2. Waits until the blockchain is ready.
+3. Deploys and configures all ParkChain contracts.
+4. Deploys `ParkChainRouter` and passes its address to the frontend automatically.
+5. Starts the frontend at `http://localhost:5173/`.
+
+Keep this terminal running while testing. Press `Ctrl+C` once to stop both the frontend and the local blockchain.
+
+If dependencies are missing, run:
+
+```bash
+npm install
+npm install --prefix frontend
 ```
 
-The script also grants `MembershipManager` the ParkCredit minter role, grants `ParkingLedger` the ParkCredit burner role, sets `ParkingLedger` as the treasury allocator, configures a 15-minute grace period, and configures the Urban, Commuter, and Unlimited tiers.
+Then run `npm start` again.
 
-Copy the addresses. You will paste them into the frontend.
+Do not start `npm run node:contracts`, `npm run deploy:contracts:local`, or `npm run frontend:dev` separately when using this workflow. `npm start` already performs all three steps.
+
+## 5. What the Start Command Configures
+
+The deployment grants `MembershipManager` the ParkCredit minter role, grants `ParkingLedger` the ParkCredit burner role, sets `ParkingLedger` as the treasury allocator, configures a 15-minute grace period, and creates the Urban, Commuter, and Unlimited membership tiers.
+
+The generated `ParkChainRouter` stores the current `ParkCredit`, `MembershipManager`, `OperatorRegistry`, `OperatorTreasury`, and `ParkingLedger` addresses for the frontend.
 
 ## 6. Configure MetaMask
 
@@ -186,15 +153,9 @@ Optionally import the second local account too:
 
 Use this as an operator wallet during testing.
 
-## 7. Start the Frontend
+## 7. Open the Frontend
 
-In terminal 3, from the repository root:
-
-```bash
-npm run frontend:dev
-```
-
-The default frontend URL is:
+After `npm start` reports that Vite is ready, open:
 
 ```text
 http://localhost:5173/
@@ -202,18 +163,16 @@ http://localhost:5173/
 
 Open that URL in the browser where MetaMask is installed.
 
-## 8. Connect Wallet and Paste Addresses
+## 8. Connect Wallet and Verify the Deployment
 
 In the frontend:
 
 1. Click `Connect Wallet`.
 2. Select MetaMask.
 3. Make sure MetaMask is connected to `Hardhat Local`.
-4. Paste the deployed `ParkCredit` address.
-5. Paste the deployed `MembershipManager` address.
-6. Paste the deployed `OperatorRegistry` address.
-7. Paste the deployed `OperatorTreasury` address.
-8. Paste the deployed `ParkingLedger` address.
+4. Confirm that the interface reports that all systems are connected.
+
+The frontend receives the generated `ParkChainRouter` address from `npm start` and resolves the current contract addresses automatically. No contract addresses need to be copied or pasted.
 
 ## 9. Role Rules
 

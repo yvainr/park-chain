@@ -22,10 +22,25 @@ The following tools were used:
 - ⁠ChatGPT was used for small LaTeX formatting tasks, such as creating tables and adjusting layouts
 
 # How to run ParkChain 
-Detailed setup instructions are available in:
+Install the contract and frontend dependencies from the project root:
+
+```bash
+npm install
+npm install --prefix frontend
+```
+
+Then start the complete local ParkChain stack with one command:
+
+```bash
+npm start
+```
+
+This starts a local Hardhat node, waits until it is ready, deploys and configures the smart contracts, and launches the frontend with the generated `ParkChainRouter` address. Open [http://localhost:5173](http://localhost:5173) in a browser.
+
+Detailed test and manual deployment instructions are available in:
+
 - [README.md](https://github.com/yvainr/park-chain/blob/dev/README.md)
 - [TEST_RUN_README.md](https://github.com/yvainr/park-chain/blob/dev/TEST_RUN_README.md)
-The project can be deployedy locally using Hardhat with the provided deployment scripts. After deployment, the frontend automatically connects to the deployed contracts using the generated configuration.
 
 # Reflection
 ParkChain consists of six smart contrcats with clearly seperated responsibilities. Instead of implementing all functionality in a single contract, we devided the system into independent modules responsible for memberships, parking operators, reservations, ParkCredits, administration and ledger functionality. This modular architecture improves mantainability, scaling and extensibility.

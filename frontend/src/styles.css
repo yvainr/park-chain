@@ -2666,6 +2666,15 @@ pre {
     gap:20px;
 }
 
+.kpi-grid > .ui-card{
+    display:flex;
+    flex-direction:column;
+}
+
+.kpi-grid > .ui-card > .ui-card-content{
+    margin-top:auto;
+}
+
 .chart-grid{
     display:grid;
     grid-template-columns:1fr 1fr;

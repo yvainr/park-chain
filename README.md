@@ -8,7 +8,18 @@ ParkChain is a mono-repository for the Urban Parking and EV Charging Network ass
 
 ```bash
 npm install
+npm install --prefix frontend
 ```
+
+## Start Locally
+
+Start the complete local ParkChain stack from the repository root:
+
+```bash
+npm start
+```
+
+This one command starts a local Hardhat node, waits for it to become ready, deploys and configures the contracts, and starts the frontend with the generated router address. Press `Ctrl+C` to stop the frontend and local node.
 
 ## Run Contract Tests
 
@@ -52,7 +63,7 @@ It also grants `MembershipManager` the ParkCredit minter role and configures the
 The script grants `ParkingLedger` the ParkCredit burner role, sets it as the treasury allocator, and configures a default 15-minute grace period.
 It also deploys or reuses `ParkChainRouter` and writes the latest five contract addresses into the router.
 
-Run a local chain and deploy:
+To run the local chain and deployment separately for contract development, run these commands in separate terminals:
 
 ```bash
 npm run node:contracts
@@ -127,7 +138,7 @@ The Vite frontend supports the current MVP contract surfaces:
 - Operator: automatically resolve the operator ID from the connected wallet, set prices, category capacities, and no-show fees; verify configuration; view average member rating; and withdraw earnings.
 - Reads: operator, treasury, ledger month key, and monthly usage checks.
 
-Start it with:
+To start only the frontend against the values configured in `frontend/.env`:
 
 ```bash
 npm run frontend:dev
