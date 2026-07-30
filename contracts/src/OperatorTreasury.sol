@@ -11,6 +11,7 @@ contract OperatorTreasury {
     address public owner;
     address public allocator;
     uint256 public creditToEthRate;
+    uint256 public totalAccumulatedEarnings;
 
     mapping(uint256 => uint256) private accumulatedEarnings;
 
@@ -25,6 +26,7 @@ contract OperatorTreasury {
     );
     event CreditToEthRateUpdated(uint256 weiPerCredit);
     event AllocatorUpdated(address indexed allocator);
+    event TreasuryFunded(address indexed sender, uint256 amountWei);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "OperatorTreasury: not owner");
@@ -55,7 +57,14 @@ contract OperatorTreasury {
         emit AllocatorUpdated(msg.sender);
     }
 
-    receive() external payable {}
+    receive() external payable {
+        emit TreasuryFunded(msg.sender, msg.value);
+    }
+
+    function fundTreasury() external payable {
+        require(msg.value > 0, "OperatorTreasury: zero funding");
+        emit TreasuryFunded(msg.sender, msg.value);
+    }
 
     function setAllocator(address newAllocator) external onlyOwner {
         require(newAllocator != address(0), "OperatorTreasury: zero allocator");
@@ -69,6 +78,7 @@ contract OperatorTreasury {
         require(operatorRegistry.getOperatorWallet(operatorId) != address(0), "OperatorTreasury: unknown operator");
 
         accumulatedEarnings[operatorId] += amountCredits;
+        totalAccumulatedEarnings += amountCredits;
 
         emit EarningsAllocated(operatorId, amountCredits);
     }
@@ -82,15 +92,18 @@ contract OperatorTreasury {
         uint256 amountCredits = accumulatedEarnings[operatorId];
         require(amountCredits > 0, "OperatorTreasury: no earnings");
 
-        uint256 amountWei = amountCredits * creditToEthRate;
-        require(address(this).balance >= amountWei, "OperatorTreasury: insufficient liquidity");
+        uint256 liquidityCredits = address(this).balance / creditToEthRate;
+        uint256 withdrawnCredits = amountCredits < liquidityCredits ? amountCredits : liquidityCredits;
+        require(withdrawnCredits > 0, "OperatorTreasury: insufficient liquidity");
 
-        accumulatedEarnings[operatorId] = 0;
+        uint256 amountWei = withdrawnCredits * creditToEthRate;
+        accumulatedEarnings[operatorId] -= withdrawnCredits;
+        totalAccumulatedEarnings -= withdrawnCredits;
 
         (bool sent, ) = operatorWallet.call{value: amountWei}("");
         require(sent, "OperatorTreasury: withdraw failed");
 
-        emit EarningsWithdrawn(operatorId, operatorWallet, amountCredits, amountWei);
+        emit EarningsWithdrawn(operatorId, operatorWallet, withdrawnCredits, amountWei);
     }
 
     function setCreditToEthRate(uint256 weiPerCredit) external onlyOwner {
@@ -101,6 +114,30 @@ contract OperatorTreasury {
 
     function getAccumulatedEarnings(uint256 operatorId) external view returns (uint256) {
         return accumulatedEarnings[operatorId];
+    }
+
+    function getWithdrawableEarnings(uint256 operatorId) external view returns (uint256) {
+        if (creditToEthRate == 0) {
+            return 0;
+        }
+
+        uint256 liquidityCredits = address(this).balance / creditToEthRate;
+        uint256 earnings = accumulatedEarnings[operatorId];
+        return earnings < liquidityCredits ? earnings : liquidityCredits;
+    }
+
+    function getAvailableLiquidity() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    function getRequiredLiquidity() public view returns (uint256) {
+        return totalAccumulatedEarnings * creditToEthRate;
+    }
+
+    function getLiquidityShortfall() external view returns (uint256) {
+        uint256 requiredLiquidity = getRequiredLiquidity();
+        uint256 availableLiquidity = address(this).balance;
+        return requiredLiquidity > availableLiquidity ? requiredLiquidity - availableLiquidity : 0;
     }
 
     function getCreditToEthRate() external view returns (uint256) {

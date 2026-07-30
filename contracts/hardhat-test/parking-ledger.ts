@@ -205,6 +205,57 @@ describe("ParkingLedger", function () {
     assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 2n]), 0n);
   });
 
+  it("rejects disabled explicit slots and skips them during automatic assignment", async function () {
+    const { ledger, membership, registry, operator, member } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await registry.write.setCategoryCapacity([OPERATOR_ID, STANDARD, 2n], { account: operator.account });
+    await registry.write.setSlotAvailable([OPERATOR_ID, STANDARD, 1n, false], { account: operator.account });
+    await purchaseMembership(membership, member);
+
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, startTime, 1n]), false);
+    assert.equal(await ledger.read.getFirstAvailableSlot([OPERATOR_ID, STANDARD, startTime, 1n]), 2n);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserveSlot([OPERATOR_ID, STANDARD, 1n, startTime, 1n], { account: member.account }),
+      "ParkingLedger: slot disabled",
+    );
+
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 1n);
+    assert.equal((await ledger.read.getReservation([reservationId])).slotID, 2n);
+  });
+
+  it("keeps existing reservations valid after their slot is disabled", async function () {
+    const { ledger, membership, registry, operator, member } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const cancelledStart = now + HOUR;
+    const occupiedStart = now + 3n * HOUR;
+    const noShowStart = now + 5n * HOUR;
+
+    await purchaseMembership(membership, member);
+    const cancelledId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, cancelledStart, 1n);
+    const occupiedId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, occupiedStart, 1n);
+    const noShowId = await reserveSlot(ledger, member, OPERATOR_ID, STANDARD, 1n, noShowStart, 1n);
+
+    await registry.write.setSlotAvailable([OPERATOR_ID, STANDARD, 1n, false], { account: operator.account });
+
+    await ledger.write.cancelReservation([cancelledId], { account: member.account });
+    assert.equal((await ledger.read.getReservation([cancelledId])).status, 3);
+
+    await networkHelpers.time.increaseTo(occupiedStart);
+    await ledger.write.checkIn([occupiedId], { account: member.account });
+    await networkHelpers.time.increaseTo(occupiedStart + HOUR);
+    await ledger.write.checkOut([occupiedId], { account: member.account });
+    assert.equal((await ledger.read.getReservation([occupiedId])).status, 2);
+
+    await networkHelpers.time.increaseTo(noShowStart);
+    await ledger.write.markNoShow([noShowId]);
+    assert.equal((await ledger.read.getReservation([noShowId])).status, 4);
+  });
+
   it("rejects inactive members, unsupported categories, removed operators, and expired memberships", async function () {
     const { ledger, membership, registry, member } = await networkHelpers.loadFixture(deploySystemFixture);
     const now = BigInt(await networkHelpers.time.latest());
@@ -275,6 +326,7 @@ describe("ParkingLedger", function () {
       "ParkingLedger: category cap exceeded",
     );
 
+    await purchaseMembership(membership, secondMember);
     await reserve(ledger, secondMember, OPERATOR_ID, STANDARD, startTime + 20n * HOUR, 12n);
 
     await viem.assertions.revertWith(
@@ -456,6 +508,95 @@ describe("ParkingLedger", function () {
     assert.equal(reservation.status, 4);
     assert.equal(await credit.read.balanceOf([member.account.address, 1n]), 75n);
     assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 5n);
+  });
+
+  it("rejects reservation creation when the current balance cannot cover its largest possible initial charge", async function () {
+    const { ledger, membership, registry, credit, operator, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+
+    await purchaseMembership(membership, member);
+    await registry.write.setPricePerHour([OPERATOR_ID, STANDARD, 1n], { account: operator.account });
+    await registry.write.setNoShowFee([OPERATOR_ID, 10n], { account: operator.account });
+    await credit.write.safeTransferFrom(
+      [member.account.address, secondMember.account.address, 1n, 74n, "0x"],
+      { account: member.account },
+    );
+
+    await viem.assertions.revertWith(
+      ledger.write.reserve([OPERATOR_ID, STANDARD, now + HOUR, 1n], { account: member.account }),
+      "ParkingLedger: insufficient credits",
+    );
+  });
+
+  it("closes a rejected check-in as a partially collected no-show and releases monthly usage", async function () {
+    const { ledger, membership, credit, treasury, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 2n);
+    const monthKey = await ledger.read.getMonthKey([startTime]);
+
+    await credit.write.safeTransferFrom(
+      [member.account.address, secondMember.account.address, 1n, 77n, "0x"],
+      { account: member.account },
+    );
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.checkIn([reservationId], { account: member.account });
+
+    assert.equal((await ledger.read.getReservation([reservationId])).status, 4);
+    assert.equal(await credit.read.balanceOf([member.account.address, 1n]), 0n);
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 3n);
+    assert.equal(await ledger.read.getUsedHoursByCategory([member.account.address, STANDARD, monthKey]), 0n);
+    assert.equal(await ledger.read.getUsedHoursByOperator([member.account.address, OPERATOR_ID, monthKey]), 0n);
+  });
+
+  it("settles a zero-credit no-show to a terminal status without allocating earnings", async function () {
+    const { ledger, membership, credit, treasury, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 1n);
+    const monthKey = await ledger.read.getMonthKey([startTime]);
+
+    await credit.write.safeTransferFrom(
+      [member.account.address, secondMember.account.address, 1n, 80n, "0x"],
+      { account: member.account },
+    );
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.markNoShow([reservationId]);
+
+    assert.equal((await ledger.read.getReservation([reservationId])).status, 4);
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 0n);
+    assert.equal(await ledger.read.getUsedHoursByCategory([member.account.address, STANDARD, monthKey]), 0n);
+    assert.equal(await ledger.read.isSlotAvailable([OPERATOR_ID, STANDARD, 1n, startTime, 1n]), true);
+  });
+
+  it("collects the available overstay balance and still checks out", async function () {
+    const { ledger, membership, credit, treasury, member, secondMember } =
+      await networkHelpers.loadFixture(deploySystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const reservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 2n);
+
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.checkIn([reservationId], { account: member.account });
+    await credit.write.safeTransferFrom(
+      [member.account.address, secondMember.account.address, 1n, 55n, "0x"],
+      { account: member.account },
+    );
+    await networkHelpers.time.increaseTo(startTime + 3n * HOUR);
+    await ledger.write.checkOut([reservationId], { account: member.account });
+
+    assert.equal((await ledger.read.getReservation([reservationId])).status, 2);
+    assert.equal(await credit.read.balanceOf([member.account.address, 1n]), 0n);
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 25n);
   });
 
   it("rejects invalid lifecycle transitions and non-member mutations", async function () {

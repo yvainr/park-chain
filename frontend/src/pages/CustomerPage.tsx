@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock, ChevronDown, ChevronUp, CircleCheck, CircleX, CreditCard, RefreshCw, Star, Ticket, Wallet, X } from "lucide-react";
-import { membershipManagerAbi, operatorRegistryAbi, parkingLedgerAbi } from "../abi/contracts";
+import { membershipManagerAbi, operatorRegistryAbi, parkCreditAbi, parkingLedgerAbi } from "../abi/contracts";
 import {
   Badge,
   Button,
@@ -237,7 +237,10 @@ export function CustomerPage({ app }: any) {
   const operatorOptions =
     selectedOperatorKnown || !app.operatorId
       ? app.registeredOperators
-      : [{ id: app.operatorId, name: `Operator #${app.operatorId}`, wallet: "" }, ...app.registeredOperators];
+      : [
+          { id: app.operatorId, name: `Operator #${app.operatorId} — removed`, wallet: "", removed: true },
+          ...app.registeredOperators,
+        ];
   const activeMembershipTiers = app.membershipTiers.filter((tier: any) => tier.active);
   const accountLoaded = app.memberSummary.active !== "-";
   const isMemberActive = String(app.memberSummary.active).toLowerCase() === "true";
@@ -253,6 +256,10 @@ export function CustomerPage({ app }: any) {
   );
   const selectedReservationIsCurrent =
     Boolean(app.selectedReservation) && (app.selectedReservation.status === 0 || app.selectedReservation.status === 1);
+  const checkInBeforeStart =
+    selectedReservationIsCurrent
+    && app.canUseReservedActions
+    && nowSeconds < Number(app.selectedReservation.startTime);
   const hasCurrentReservations = currentReservations.length > 0 || selectedReservationIsCurrent;
   const selectedCurrentReservationId = currentReservations.some(
     (reservation: any) => reservation.id.toString() === app.reservationId,
@@ -547,7 +554,11 @@ export function CustomerPage({ app }: any) {
                     </SelectTrigger>
                     <SelectContent>
                       {operatorOptions.map((operator: any) => (
-                        <SelectItem key={operator.id.toString()} value={operator.id.toString()}>
+                        <SelectItem
+                          key={operator.id.toString()}
+                          value={operator.id.toString()}
+                          disabled={Boolean(operator.removed)}
+                        >
                           <span className="operator-option-row">
                             <span className="operator-option-name">{operator.name} (ID {operator.id.toString()})</span>
                             <OperatorRatingPictogram rating={operatorRatings[operator.id.toString()]} />
@@ -617,6 +628,14 @@ export function CustomerPage({ app }: any) {
                           const slotId = await app.refreshAvailableSlotPreview();
                           if (slotId === 0n) throw new Error("No free slot for the selected time");
 
+                          const cost = await app.refreshReservationCostPreview();
+                          if (cost.insufficient) {
+                            throw new Error(
+                              `Insufficient ParkCredits: ${cost.requiredCredits.toString()} required, `
+                                + `${cost.availableCredits.toString()} available`,
+                            );
+                          }
+
                           const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "reserve", [
                             toUint(app.operatorId, "Operator ID"),
                             app.categoryHash,
@@ -630,7 +649,7 @@ export function CustomerPage({ app }: any) {
                           return result;
                         })
                       }
-                      disabled={availableSlot.loading || availableSlot.slotId === "0" || Boolean(availableSlot.error)}
+                      disabled={availableSlot.loading}
                     >
                       Reserve
                     </Button>
@@ -691,6 +710,9 @@ export function CustomerPage({ app }: any) {
                                 {app.slotCalendar.slots.map((slotID: bigint) => {
                                   const cell = calendarCells.get(`${slotID}:${row}`);
                                   const reservation = cell?.reservation;
+                                  const disabled = app.slotCalendar.disabledSlots.some(
+                                    (disabledSlotID: bigint) => disabledSlotID === slotID,
+                                  );
                                   if (reservation) {
                                     return (
                                       <TableCell
@@ -721,6 +743,14 @@ export function CustomerPage({ app }: any) {
                                   }
 
                                   if (cell?.covered) return null;
+
+                                  if (disabled) {
+                                    return (
+                                      <TableCell key={slotID.toString()} className="slot-calendar-disabled-cell">
+                                        <span aria-label={`Slot ${slotID.toString()} is unavailable`}>Unavailable</span>
+                                      </TableCell>
+                                    );
+                                  }
 
                                   return (
                                     <TableCell key={slotID.toString()} className="slot-calendar-free-cell">
@@ -757,9 +787,9 @@ export function CustomerPage({ app }: any) {
                 <Ticket aria-hidden="true" size={18} />
                 <div>
                   <CardTitle>Current Reservation</CardTitle>
-                  <CardDescription>
-                    {selectedReservationIsCurrent ? app.reservationSummary : "No running or planned reservation"}
-                  </CardDescription>
+                  {selectedReservationIsCurrent && (
+                    <CardDescription>{app.reservationSummary}</CardDescription>
+                  )}
                 </div>
               </div>
               <Badge
@@ -846,13 +876,42 @@ export function CustomerPage({ app }: any) {
                 {selectedReservationIsCurrent && app.canUseReservedActions && (
                   <>
                     <Button
+                      disabled={checkInBeforeStart}
+                      title={checkInBeforeStart ? "Check-in becomes available when the reservation starts" : undefined}
                       onClick={() =>
                         app.run("Check in", async () => {
+                          const [balanceBeforeRaw, noShowFeeRaw] = await Promise.all([
+                            readContract({
+                              address: app.requireCredit(),
+                              abi: parkCreditAbi,
+                              functionName: "balanceOf",
+                              args: [app.memberReadAddress(), app.parkCreditId],
+                            }),
+                            readContract({
+                              address: app.requireRegistry(),
+                              abi: operatorRegistryAbi,
+                              functionName: "getNoShowFee",
+                              args: [toUint(app.selectedReservation.operatorID, "Operator ID")],
+                            }),
+                          ]);
                           const result = await app.txBase(app.requireLedger(), parkingLedgerAbi, "checkIn", [
                             toUint(app.reservationId, "Reservation ID"),
                           ]);
-                          await app.refreshSelectedReservation();
+                          const updatedReservation = await app.refreshSelectedReservation();
+                          await app.refreshMemberAccount();
+                          await app.refreshMemberReservations();
                           await app.refreshSlotCalendar();
+                          if (updatedReservation?.status === 4) {
+                            const balanceBefore = BigInt(String(balanceBeforeRaw));
+                            const noShowFee = BigInt(String(noShowFeeRaw));
+                            const collected = balanceBefore < noShowFee ? balanceBefore : noShowFee;
+                            return {
+                              transactionHash: result,
+                              outcome: "Check-in rejected because the full reserved charge was unavailable",
+                              collectedCredits: collected,
+                              waivedCredits: noShowFee - collected,
+                            };
+                          }
                           return result;
                         })
                       }
@@ -926,7 +985,7 @@ export function CustomerPage({ app }: any) {
                   </>
                 )}
 
-                {(!selectedReservationIsCurrent || (!app.canUseReservedActions && !app.canCheckOutReservation)) && (
+                {selectedReservationIsCurrent && !app.canUseReservedActions && !app.canCheckOutReservation && (
                   <p className="customer-muted-copy">Reserve or load an active booking.</p>
                 )}
               </div>

@@ -24,9 +24,16 @@ contract OperatorRegistry {
     mapping(uint256 => mapping(bytes32 => uint256)) public pricePerHour;
     mapping(uint256 => uint256) public noShowFee;
     mapping(uint256 => mapping(bytes32 => uint256)) private categoryCapacity;
+    mapping(uint256 => mapping(bytes32 => mapping(uint256 => bool))) private disabledSlots;
 
     event OperatorRegistered(uint256 indexed operatorId, address indexed wallet, string name);
     event OperatorRemoved(uint256 indexed operatorId);
+    event SlotAvailabilityUpdated(
+        uint256 indexed operatorId,
+        bytes32 indexed category,
+        uint256 indexed slotId,
+        bool available
+    );
 
     modifier onlyOwner() {
         require(msg.sender == owner, "OperatorRegistry: not owner");
@@ -110,17 +117,17 @@ contract OperatorRegistry {
     ) private {
         require(wallet != address(0), "OperatorRegistry: zero wallet");
         require(bytes(name).length > 0, "OperatorRegistry: empty name");
+        Operator storage existingOperator = operators[operatorId];
+
+        if (existingOperator.wallet != address(0)) {
+            require(!existingOperator.whitelisted, "OperatorRegistry: operator ID already exists");
+            require(existingOperator.wallet == wallet, "OperatorRegistry: operator wallet mismatch");
+        }
+
         require(
             !registeredOperatorWallets[wallet] || operatorIdByWallet[wallet] == operatorId,
             "OperatorRegistry: wallet already registered"
         );
-        require(operators[operatorId].wallet == address(0), "OperatorRegistry: operator ID already exists");
-
-        address previousWallet = operators[operatorId].wallet;
-        if (previousWallet != address(0) && previousWallet != wallet) {
-            delete operatorIdByWallet[previousWallet];
-            registeredOperatorWallets[previousWallet] = false;
-        }
 
         operators[operatorId] = Operator({wallet: wallet, name: name, whitelisted: true});
         operatorIdByWallet[wallet] = operatorId;
@@ -196,5 +203,31 @@ contract OperatorRegistry {
 
     function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns(uint256) {
         return categoryCapacity[operatorID][category];
+    }
+
+    function setSlotAvailable(
+        uint256 operatorId,
+        bytes32 category,
+        uint256 slotId,
+        bool available
+    ) external onlyOwnerOrOperatorWallet(operatorId) {
+        require(operators[operatorId].whitelisted, "OperatorRegistry: not whitelisted");
+        require(supportedCategories[operatorId][category], "OperatorRegistry: unsupported category");
+        require(slotId > 0 && slotId <= categoryCapacity[operatorId][category], "OperatorRegistry: slot out of range");
+
+        disabledSlots[operatorId][category][slotId] = !available;
+        emit SlotAvailabilityUpdated(operatorId, category, slotId, available);
+    }
+
+    function isSlotEnabled(
+        uint256 operatorId,
+        bytes32 category,
+        uint256 slotId
+    ) external view returns (bool) {
+        return operators[operatorId].whitelisted
+            && supportedCategories[operatorId][category]
+            && slotId > 0
+            && slotId <= categoryCapacity[operatorId][category]
+            && !disabledSlots[operatorId][category][slotId];
     }
 }

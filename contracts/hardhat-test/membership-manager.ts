@@ -15,14 +15,16 @@ import {
 async function deployMembershipFixture() {
   const [owner, member, stranger] = await viem.getWalletClients();
   const credit = await viem.deployContract("ParkCredit");
-  const membership = await viem.deployContract("MembershipManager", [credit.address]);
+  const registry = await viem.deployContract("OperatorRegistry");
+  const treasury = await viem.deployContract("OperatorTreasury", [registry.address, parseEther("0.001")]);
+  const membership = await viem.deployContract("MembershipManager", [credit.address, treasury.address]);
 
   await credit.write.setMinter([membership.address, true]);
   await membership.write.setTier([URBAN, "Urban", 80n, parseEther("0.01"), 20n, true]);
   await membership.write.setTier([COMMUTER, "Commuter", 200n, parseEther("0.02"), 60n, true]);
   await membership.write.setTier([UNLIMITED, "Unlimited", 400n, parseEther("0.03"), 120n, true]);
 
-  return { owner, member, stranger, credit, membership };
+  return { owner, member, stranger, credit, membership, treasury };
 }
 
 describe("MembershipManager", function () {
@@ -34,9 +36,24 @@ describe("MembershipManager", function () {
   });
 
   it("rejects a zero ParkCredit address", async function () {
+    const [owner] = await viem.getWalletClients();
     await viem.assertions.revertWith(
-      viem.deployContract("MembershipManager", ["0x0000000000000000000000000000000000000000"]),
+      viem.deployContract("MembershipManager", [
+        "0x0000000000000000000000000000000000000000",
+        owner.account.address,
+      ]),
       "MembershipManager: zero credit",
+    );
+  });
+
+  it("rejects a zero treasury address", async function () {
+    const credit = await viem.deployContract("ParkCredit");
+    await viem.assertions.revertWith(
+      viem.deployContract("MembershipManager", [
+        credit.address,
+        "0x0000000000000000000000000000000000000000",
+      ]),
+      "MembershipManager: zero treasury",
     );
   });
 
@@ -120,6 +137,21 @@ describe("MembershipManager", function () {
     assert.equal(await membership.read.getMembershipExpiry([member.account.address]), purchaseTime + 30n * DAY);
     assert.equal(await membership.read.isMemberActive([member.account.address]), true);
     assert.equal(await membership.read.getMemberMonthlyHourCap([member.account.address]), 20n);
+  });
+
+  it("forwards purchase and renewal ETH to the treasury atomically", async function () {
+    const { membership, treasury, member } = await networkHelpers.loadFixture(deployMembershipFixture);
+    const publicClient = await viem.getPublicClient();
+
+    await purchaseMembership(membership, member, URBAN, parseEther("0.01"));
+
+    assert.equal(await publicClient.getBalance({ address: membership.address }), 0n);
+    assert.equal(await publicClient.getBalance({ address: treasury.address }), parseEther("0.01"));
+
+    await renewMembership(membership, member, COMMUTER, parseEther("0.02"));
+
+    assert.equal(await publicClient.getBalance({ address: membership.address }), 0n);
+    assert.equal(await publicClient.getBalance({ address: treasury.address }), parseEther("0.03"));
   });
 
   it("extends renewal before expiry from the old expiry", async function () {

@@ -61,14 +61,20 @@ describe("ParkChain integration", function () {
     const checkedOut = await ledger.read.getReservation([0n]);
     assert.equal(checkedOut.status, 2);
 
-    await member.sendTransaction({ to: treasury.address, value: parseEther("1") });
+    assert.equal(await treasury.read.getAvailableLiquidity(), parseEther("0.01"));
+    assert.equal(await treasury.read.getWithdrawableEarnings([OPERATOR_ID]), 10n);
+
     const balanceBefore = await publicClient.getBalance({ address: operator.account.address });
     const hash = await treasury.write.withdraw([OPERATOR_ID], { account: operator.account });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
     const balanceAfter = await publicClient.getBalance({ address: operator.account.address });
     const gasCost = receipt.gasUsed * receipt.effectiveGasPrice;
 
-    assert.equal(balanceAfter + gasCost - balanceBefore, parseEther("0.02"));
+    assert.equal(balanceAfter + gasCost - balanceBefore, parseEther("0.01"));
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 10n);
+
+    await treasury.write.fundTreasury({ account: member.account, value: parseEther("0.01") });
+    await treasury.write.withdraw([OPERATOR_ID], { account: operator.account });
     assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 0n);
   });
 
@@ -134,5 +140,49 @@ describe("ParkChain integration", function () {
       registry.write.setPricePerHour([OPERATOR_ID, STANDARD, 12n], { account: operator.account }),
       "OperatorRegistry: not whitelisted",
     );
+  });
+
+  it("settles an existing reservation after operator removal and accepts new reservations after reactivation", async function () {
+    const { ledger, membership, registry, treasury, operator, member } =
+      await networkHelpers.loadFixture(deployHundredCreditSystemFixture);
+    const now = BigInt(await networkHelpers.time.latest());
+    const startTime = now + HOUR;
+
+    await purchaseMembership(membership, member);
+    const existingReservationId = await reserve(ledger, member, OPERATOR_ID, STANDARD, startTime, 1n);
+    await registry.write.removeOperator([OPERATOR_ID]);
+
+    await viem.assertions.revertWith(
+      ledger.write.reserve([OPERATOR_ID, STANDARD, startTime + 2n * HOUR, 1n], { account: member.account }),
+      "ParkingLedger: operator not whitelisted",
+    );
+
+    await networkHelpers.time.increaseTo(startTime);
+    await ledger.write.checkIn([existingReservationId], { account: member.account });
+    await networkHelpers.time.increaseTo(startTime + HOUR);
+    await ledger.write.checkOut([existingReservationId], { account: member.account });
+
+    assert.equal((await ledger.read.getReservation([existingReservationId])).status, 2);
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 10n);
+
+    await registry.write.registerOperatorWithSetup([
+      OPERATOR_ID,
+      operator.account.address,
+      "Central Garage Reopened",
+      [STANDARD],
+      [10n],
+      [100n],
+      5n,
+    ]);
+
+    const newReservationId = await reserve(
+      ledger,
+      member,
+      OPERATOR_ID,
+      STANDARD,
+      startTime + 2n * HOUR,
+      1n,
+    );
+    assert.equal((await ledger.read.getReservation([newReservationId])).status, 0);
   });
 });

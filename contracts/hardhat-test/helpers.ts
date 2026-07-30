@@ -27,9 +27,9 @@ export async function deploySystemFixture(options: { credits?: bigint; cap?: big
   const rate = options.rate ?? parseEther("0.01");
 
   const credit = await viem.deployContract("ParkCredit");
-  const membership = await viem.deployContract("MembershipManager", [credit.address]);
   const registry = await viem.deployContract("OperatorRegistry");
   const treasury = await viem.deployContract("OperatorTreasury", [registry.address, rate]);
+  const membership = await viem.deployContract("MembershipManager", [credit.address, treasury.address]);
   const ledger = await viem.deployContract("ParkingLedger", [
     membership.address,
     registry.address,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatEther } from "viem";
 import { membershipManagerAbi, operatorRegistryAbi, operatorTreasuryAbi, parkingLedgerAbi } from "../abi/contracts";
 import { ContractPanel, OutputPanel, SharedFields } from "../components/shared-panels";
 import {
@@ -32,6 +33,49 @@ export function AdminPage({ app }: any) {
     Record<string, { pricePerHour: string; capacity: string }>
   >({});
   const [categoryAccessLoading, setCategoryAccessLoading] = useState(false);
+  const [savedAllocator, setSavedAllocator] = useState<string | null>(null);
+  const [savedCreditRate, setSavedCreditRate] = useState<string | null>(null);
+  const [savedGracePeriod, setSavedGracePeriod] = useState<string | null>(null);
+  const [submittedFundingWei, setSubmittedFundingWei] = useState(app.treasuryFundingWei);
+
+  function weiHelper(value: string) {
+    if (!/^\d+$/.test(value)) return "Enter a whole amount in wei.";
+    return `${formatEther(BigInt(value))} ETH`;
+  }
+
+  async function refreshTreasuryConfiguration() {
+    const [allocator, creditRate] = await Promise.all([
+      readContract({
+        address: app.requireTreasury(),
+        abi: operatorTreasuryAbi,
+        functionName: "allocator",
+      }),
+      readContract({
+        address: app.requireTreasury(),
+        abi: operatorTreasuryAbi,
+        functionName: "getCreditToEthRate",
+      }),
+    ]);
+    const allocatorValue = String(allocator);
+    const creditRateValue = String(creditRate);
+    app.setAllocator(allocatorValue);
+    app.setCreditRate(creditRateValue);
+    setSavedAllocator(allocatorValue);
+    setSavedCreditRate(creditRateValue);
+    return { allocator, creditRate };
+  }
+
+  async function refreshGracePeriod() {
+    const gracePeriod = await readContract({
+      address: app.requireLedger(),
+      abi: parkingLedgerAbi,
+      functionName: "gracePeriodMinutes",
+    });
+    const gracePeriodValue = String(gracePeriod);
+    app.setGracePeriodMinutes(gracePeriodValue);
+    setSavedGracePeriod(gracePeriodValue);
+    return gracePeriod;
+  }
 
   async function readCategoryAccess(operatorId: string) {
     const entries = await Promise.all(
@@ -88,6 +132,26 @@ export function AdminPage({ app }: any) {
     });
   }, [app.categoryNames, app.pricePerHour, app.categoryCapacity]);
 
+  useEffect(() => {
+    if (!app.operatorForCategoryId || !app.registryAddress || !app.managedSlotId) return;
+    void app.refreshManagedSlotAvailability(app.operatorForCategoryId).catch(() => undefined);
+  }, [
+    app.operatorForCategoryId,
+    app.registryAddress,
+    app.categoryHash,
+    app.managedSlotId,
+  ]);
+
+  useEffect(() => {
+    if (!app.treasuryAddress) return;
+    void Promise.all([refreshTreasuryConfiguration(), app.refreshTreasurySummary()]).catch(() => undefined);
+  }, [app.treasuryAddress]);
+
+  useEffect(() => {
+    if (!app.ledgerAddress) return;
+    void refreshGracePeriod().catch(() => undefined);
+  }, [app.ledgerAddress]);
+
   const changedCategories = useMemo(
     () =>
       app.categoryNames.filter(
@@ -95,6 +159,11 @@ export function AdminPage({ app }: any) {
       ),
     [app.categoryNames, draftCategoryAccess, savedCategoryAccess],
   );
+  const allocatorDirty =
+    savedAllocator !== null && app.allocator.trim().toLowerCase() !== savedAllocator.toLowerCase();
+  const creditRateDirty = savedCreditRate !== null && app.creditRate !== savedCreditRate;
+  const gracePeriodDirty = savedGracePeriod !== null && app.gracePeriodMinutes !== savedGracePeriod;
+  const fundingAmountDirty = app.treasuryFundingWei !== submittedFundingWei;
 
   function updateRegistrationCategorySetup(
     name: string,
@@ -152,8 +221,11 @@ export function AdminPage({ app }: any) {
           <CardContent className="tab-panel">
             <section className="operator-action-block">
               <div className="operator-action-heading">
-                <h3>Register an operator</h3>
-                <p>The wallet address entered here becomes the authorized operator wallet for the numeric ID.</p>
+                <h3>Register or reactivate an operator</h3>
+                <p>
+                  A removed operator can be reactivated with the same operator ID and wallet. The wallet address
+                  remains the authorized operator identity.
+                </p>
               </div>
               <div className="grid three">
                 <Label>
@@ -296,7 +368,7 @@ export function AdminPage({ app }: any) {
                   })
                 }
               >
-                Register and Configure Operator
+                Register / Reactivate and Configure
               </Button>
             </section>
 
@@ -477,14 +549,16 @@ export function AdminPage({ app }: any) {
                   </Select>
                 </Label>
               </div>
-              <Button onClick={() => app.run("Set parking place availability", () =>
-                app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
+              <Button onClick={() => app.run("Set parking place availability", async () => {
+                const result = await app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
                   toUint(app.operatorForCategoryId, "Active operator"),
                   app.categoryHash,
                   toUint(app.managedSlotId, "Slot number"),
                   app.managedSlotAvailable,
-                ])
-              )}>
+                ]);
+                await app.refreshManagedSlotAvailability(app.operatorForCategoryId);
+                return result;
+              })}>
                 Save Place Availability
               </Button>
             </section>
@@ -620,59 +694,174 @@ export function AdminPage({ app }: any) {
               </Table>
             </section>
 
-            <div className="grid two">
-              <Label>
-                <span>Treasury allocator</span>
-                <Input value={app.allocator} onChange={(event: any) => app.setAllocator(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Wei per credit</span>
-                <Input value={app.creditRate} onChange={(event: any) => app.setCreditRate(event.target.value)} />
-              </Label>
-              <Label>
-                <span>Grace period minutes</span>
-                <Input value={app.gracePeriodMinutes} onChange={(event: any) => app.setGracePeriodMinutes(event.target.value)} />
-              </Label>
-            </div>
+            <section className="operator-action-block">
+              <div className="operator-action-heading">
+                <h3>Platform and treasury settings</h3>
+              </div>
 
-            <div className="actions">
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  app.run("Set allocator", () =>
-                    app.txBase(app.requireTreasury(), operatorTreasuryAbi, "setAllocator", [
-                      toAddress(app.allocator, "Treasury allocator"),
-                    ]),
-                  )
-                }
-              >
-                Set Allocator
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  app.run("Set exchange rate", () =>
-                    app.txBase(app.requireTreasury(), operatorTreasuryAbi, "setCreditToEthRate", [
-                      toUint(app.creditRate, "Wei per credit"),
-                    ]),
-                  )
-                }
-              >
-                Set Exchange Rate
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  app.run("Set grace period", () =>
-                    app.txBase(app.requireLedger(), parkingLedgerAbi, "setGracePeriodMinutes", [
-                      toUint(app.gracePeriodMinutes, "Grace period minutes"),
-                    ]),
-                  )
-                }
-              >
-                Set Grace Period
-              </Button>
-            </div>
+              <div className="admin-settings-grid">
+                <div className={`admin-setting-card${allocatorDirty ? " is-dirty" : ""}`}>
+                  <div className="admin-setting-copy">
+                    <h4>Treasury allocator</h4>
+                    {allocatorDirty && <span className="admin-unsaved-badge">Unsaved</span>}
+                  </div>
+                  <div className="admin-setting-control">
+                    <Label>
+                      <span>Allocator address</span>
+                      <Input
+                        placeholder="0x..."
+                        value={app.allocator}
+                        onChange={(event: any) => app.setAllocator(event.target.value)}
+                      />
+                    </Label>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        app.run("Set allocator", async () => {
+                          const result = await app.txBase(
+                            app.requireTreasury(),
+                            operatorTreasuryAbi,
+                            "setAllocator",
+                            [toAddress(app.allocator, "Treasury allocator")],
+                          );
+                          await refreshTreasuryConfiguration();
+                          return result;
+                        })
+                      }
+                    >
+                      Save Allocator
+                    </Button>
+                  </div>
+                </div>
+
+                <div className={`admin-setting-card${creditRateDirty ? " is-dirty" : ""}`}>
+                  <div className="admin-setting-copy">
+                    <h4>Credit-to-ETH exchange rate</h4>
+                    {creditRateDirty && <span className="admin-unsaved-badge">Unsaved</span>}
+                  </div>
+                  <div className="admin-setting-control">
+                    <Label>
+                      <span>Wei per ParkCredit</span>
+                      <Input
+                        min="0"
+                        inputMode="numeric"
+                        type="number"
+                        value={app.creditRate}
+                        onChange={(event: any) => app.setCreditRate(event.target.value)}
+                      />
+                    </Label>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        app.run("Set exchange rate", async () => {
+                          const result = await app.txBase(
+                            app.requireTreasury(),
+                            operatorTreasuryAbi,
+                            "setCreditToEthRate",
+                            [toUint(app.creditRate, "Wei per credit")],
+                          );
+                          await Promise.all([refreshTreasuryConfiguration(), app.refreshTreasurySummary()]);
+                          return result;
+                        })
+                      }
+                    >
+                      Save Rate
+                    </Button>
+                    <small className="admin-setting-helper">{weiHelper(app.creditRate)} per ParkCredit</small>
+                  </div>
+                </div>
+
+                <div className={`admin-setting-card${gracePeriodDirty ? " is-dirty" : ""}`}>
+                  <div className="admin-setting-copy">
+                    <h4>Reservation grace period</h4>
+                    {gracePeriodDirty && <span className="admin-unsaved-badge">Unsaved</span>}
+                  </div>
+                  <div className="admin-setting-control">
+                    <Label>
+                      <span>Minutes</span>
+                      <Input
+                        min="0"
+                        inputMode="numeric"
+                        type="number"
+                        value={app.gracePeriodMinutes}
+                        onChange={(event: any) => app.setGracePeriodMinutes(event.target.value)}
+                      />
+                    </Label>
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        app.run("Set grace period", async () => {
+                          const result = await app.txBase(
+                            app.requireLedger(),
+                            parkingLedgerAbi,
+                            "setGracePeriodMinutes",
+                            [toUint(app.gracePeriodMinutes, "Grace period minutes")],
+                          );
+                          await refreshGracePeriod();
+                          return result;
+                        })
+                      }
+                    >
+                      Save Grace Period
+                    </Button>
+                  </div>
+                </div>
+
+                <div className={`admin-setting-card${fundingAmountDirty ? " is-dirty" : ""}`}>
+                  <div className="admin-setting-copy">
+                    <h4>Fund operator withdrawals</h4>
+                    {fundingAmountDirty && <span className="admin-unsaved-badge">Not submitted</span>}
+                  </div>
+                  <div className="admin-setting-control">
+                    <Label>
+                      <span>Top-up amount in wei</span>
+                      <Input
+                        min="1"
+                        inputMode="numeric"
+                        type="number"
+                        value={app.treasuryFundingWei}
+                        onChange={(event: any) => app.setTreasuryFundingWei(event.target.value)}
+                      />
+                    </Label>
+                    <Button
+                      onClick={() =>
+                        app.run("Fund treasury", async () => {
+                          const fundingWei = app.treasuryFundingWei;
+                          const result = await app.txBase(
+                            app.requireTreasury(),
+                            operatorTreasuryAbi,
+                            "fundTreasury",
+                            [],
+                            toUint(fundingWei, "Treasury funding"),
+                          );
+                          setSubmittedFundingWei(fundingWei);
+                          await app.refreshTreasurySummary();
+                          return result;
+                        })
+                      }
+                    >
+                      Fund Treasury
+                    </Button>
+                    <small className="admin-setting-helper">{weiHelper(app.treasuryFundingWei)}</small>
+                  </div>
+                </div>
+              </div>
+
+              <div className="treasury-liquidity-heading">
+                <h4>Treasury liquidity</h4>
+                <Button
+                  variant="secondary"
+                  onClick={() => app.run("Refresh treasury liquidity", app.refreshTreasurySummary)}
+                >
+                  Refresh
+                </Button>
+              </div>
+              <div className="customer-metric-grid admin-treasury-metrics">
+                <div><span>Available liquidity</span><strong>{app.treasurySummary.availableLiquidity} wei</strong></div>
+                <div><span>Required liquidity</span><strong>{app.treasurySummary.requiredLiquidity} wei</strong></div>
+                <div><span>Shortfall</span><strong>{app.treasurySummary.shortfall} wei</strong></div>
+              </div>
+            </section>
           </CardContent>
         </Card>
       </div>

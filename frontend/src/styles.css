@@ -1426,6 +1426,129 @@ pre {
   line-height: 1.5;
 }
 
+.admin-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-setting-card {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.admin-setting-card.is-dirty {
+  border-color: #64748b;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(51, 65, 85, 0.1);
+}
+
+.admin-setting-card.is-dirty .ui-input {
+  border-color: #64748b;
+  background: #ffffff;
+}
+
+.admin-setting-copy {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-setting-copy h4,
+.treasury-liquidity-heading h4 {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.admin-unsaved-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #334155;
+  background: #e2e8f0;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-setting-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 16px auto;
+  align-content: end;
+  gap: 8px;
+}
+
+.admin-setting-control .ui-label {
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.admin-setting-control .ui-input {
+  min-width: 0;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-setting-control .ui-input[type="number"] {
+  appearance: textfield;
+}
+
+.admin-setting-control .ui-input[type="number"]::-webkit-inner-spin-button,
+.admin-setting-control .ui-input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
+.admin-setting-control .ui-button {
+  grid-column: 1;
+  grid-row: 3;
+  width: 100%;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.admin-setting-helper {
+  grid-column: 1;
+  grid-row: 2;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.treasury-liquidity-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-treasury-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-treasury-metrics strong {
+  overflow-x: auto;
+  overflow-wrap: normal;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .operator-removal-block {
   border-color: #ead4d4;
   background: #fffafa;
@@ -1606,6 +1729,13 @@ pre {
 
 .slot-calendar-free-cell {
   background: #ffffff;
+}
+
+.slot-calendar-disabled-cell {
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 11px;
+  text-align: center;
 }
 
 .slot-calendar-free-button {
@@ -2501,10 +2631,23 @@ pre {
   }
 
   .two,
+  .admin-settings-grid,
   .customer-tier-list,
   .customer-metric-grid,
   .top-account-metrics {
     grid-template-columns: 1fr;
+  }
+
+  .admin-setting-control {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-setting-control .ui-button {
+    width: 100%;
+  }
+
+  .admin-setting-helper {
+    grid-column: 1;
   }
 
   .top-account-actions {
@@ -2652,4 +2795,63 @@ pre {
   .customer-access-modal .customer-tier-card span {
     font-size: 13px;
   }
+}
+
+.statistics-dashboard{
+    display:flex;
+    flex-direction:column;
+    gap:24px;
+}
+
+.kpi-grid{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:20px;
+}
+
+.kpi-grid > .ui-card{
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+}
+
+.kpi-grid > .ui-card > .ui-card-header{
+    min-height:88px;
+    align-items:flex-start;
+}
+
+.kpi-grid > .ui-card > .ui-card-content{
+    margin-top:auto;
+}
+
+.chart-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.kpi-grid h2{
+    max-width:100%;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:clamp(1.15rem,1.8vw,1.6rem);
+    font-weight:700;
+    line-height:1.2;
+    text-align:center;
+}
+
+@media(max-width:900px){
+    .kpi-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+    }
+    .chart-grid{
+        grid-template-columns:1fr;
+    }
+}
+
+@media(max-width:600px){
+    .kpi-grid{
+        grid-template-columns:1fr;
+    }
 }
