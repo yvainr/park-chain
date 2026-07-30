@@ -60,6 +60,7 @@ describe("OperatorTreasury", function () {
     await treasury.write.allocateEarnings([OPERATOR_ID, 42n], { account: allocator.account });
 
     assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 42n);
+    assert.equal(await treasury.read.totalAccumulatedEarnings(), 42n);
   });
 
   it("rejects invalid allocation attempts", async function () {
@@ -100,6 +101,61 @@ describe("OperatorTreasury", function () {
 
     assert.equal(balanceAfter + gasCost - balanceBefore, parseEther("0.5"));
     assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 0n);
+    assert.equal(await treasury.read.totalAccumulatedEarnings(), 0n);
+  });
+
+  it("partially withdraws available whole-credit liquidity and preserves the remainder", async function () {
+    const { treasury, operator, allocator } = await networkHelpers.loadFixture(deployTreasuryFixture);
+    const publicClient = await viem.getPublicClient();
+
+    await treasury.write.setAllocator([allocator.account.address]);
+    await treasury.write.allocateEarnings([OPERATOR_ID, 50n], { account: allocator.account });
+    await treasury.write.fundTreasury({ account: allocator.account, value: parseEther("0.2") });
+
+    assert.equal(await treasury.read.getWithdrawableEarnings([OPERATOR_ID]), 20n);
+    assert.equal(await treasury.read.getAvailableLiquidity(), parseEther("0.2"));
+    assert.equal(await treasury.read.getRequiredLiquidity(), parseEther("0.5"));
+    assert.equal(await treasury.read.getLiquidityShortfall(), parseEther("0.3"));
+
+    await treasury.write.withdraw([OPERATOR_ID], { account: operator.account });
+
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 30n);
+    assert.equal(await treasury.read.totalAccumulatedEarnings(), 30n);
+    assert.equal(await treasury.read.getAvailableLiquidity(), 0n);
+    assert.equal(await treasury.read.getLiquidityShortfall(), parseEther("0.3"));
+
+    await treasury.write.fundTreasury({ account: allocator.account, value: parseEther("0.3") });
+    await treasury.write.withdraw([OPERATOR_ID], { account: operator.account });
+
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 0n);
+    assert.equal(await treasury.read.totalAccumulatedEarnings(), 0n);
+    assert.equal(await publicClient.getBalance({ address: treasury.address }), 0n);
+    assert.equal(await treasury.read.getLiquidityShortfall(), 0n);
+  });
+
+  it("keeps liquidity and liability views consistent after a rate change", async function () {
+    const { treasury, operator, allocator } = await networkHelpers.loadFixture(deployTreasuryFixture);
+
+    await treasury.write.setAllocator([allocator.account.address]);
+    await treasury.write.allocateEarnings([OPERATOR_ID, 10n], { account: allocator.account });
+    assert.equal(await treasury.read.getRequiredLiquidity(), parseEther("0.1"));
+    assert.equal(await treasury.read.getLiquidityShortfall(), parseEther("0.1"));
+
+    await treasury.write.setCreditToEthRate([parseEther("0.02")]);
+    await treasury.write.fundTreasury({ account: allocator.account, value: parseEther("0.05") });
+
+    assert.equal(await treasury.read.getAvailableLiquidity(), parseEther("0.05"));
+    assert.equal(await treasury.read.getRequiredLiquidity(), parseEther("0.2"));
+    assert.equal(await treasury.read.getLiquidityShortfall(), parseEther("0.15"));
+    assert.equal(await treasury.read.getWithdrawableEarnings([OPERATOR_ID]), 2n);
+
+    await treasury.write.withdraw([OPERATOR_ID], { account: operator.account });
+
+    assert.equal(await treasury.read.getAccumulatedEarnings([OPERATOR_ID]), 8n);
+    assert.equal(await treasury.read.totalAccumulatedEarnings(), 8n);
+    assert.equal(await treasury.read.getAvailableLiquidity(), parseEther("0.01"));
+    assert.equal(await treasury.read.getRequiredLiquidity(), parseEther("0.16"));
+    assert.equal(await treasury.read.getLiquidityShortfall(), parseEther("0.15"));
   });
 
   it("rejects invalid withdrawals", async function () {
@@ -150,5 +206,17 @@ describe("OperatorTreasury", function () {
     await deployer.sendTransaction({ to: treasury.address, value: parseEther("0.25") });
 
     assert.equal(await publicClient.getBalance({ address: treasury.address }), balanceBefore + parseEther("0.25"));
+  });
+
+  it("accepts explicit top-ups and rejects empty funding calls", async function () {
+    const { treasury, deployer } = await networkHelpers.loadFixture(deployTreasuryFixture);
+
+    await treasury.write.fundTreasury({ account: deployer.account, value: parseEther("0.25") });
+    assert.equal(await treasury.read.getAvailableLiquidity(), parseEther("0.25"));
+
+    await viem.assertions.revertWith(
+      treasury.write.fundTreasury({ account: deployer.account, value: 0n }),
+      "OperatorTreasury: zero funding",
+    );
   });
 });

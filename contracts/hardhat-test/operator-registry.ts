@@ -41,6 +41,52 @@ describe("OperatorRegistry", function () {
     assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 0n);
   });
 
+  it("lets the admin reactivate a removed operator with the same ID and wallet", async function () {
+    const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperatorWithSetup([
+      1n,
+      operator.account.address,
+      "Central Garage",
+      [STANDARD],
+      [10n],
+      [2n],
+      5n,
+    ]);
+    await registry.write.removeOperator([1n]);
+
+    await registry.write.registerOperatorWithSetup([
+      1n,
+      operator.account.address,
+      "Central Garage Reopened",
+      [STANDARD, EV_CHARGING],
+      [11n, 13n],
+      [3n, 1n],
+      6n,
+    ]);
+
+    const reactivated = await registry.read.operators([1n]);
+    assert.equal(reactivated[0].toLowerCase(), operator.account.address);
+    assert.equal(reactivated[1], "Central Garage Reopened");
+    assert.equal(reactivated[2], true);
+    assert.equal(await registry.read.operatorIdByWallet([operator.account.address]), 1n);
+    assert.equal(await registry.read.getPricePerHour([1n, STANDARD]), 11n);
+    assert.equal(await registry.read.getCategoryCapacity([1n, STANDARD]), 3n);
+    assert.equal(await registry.read.getNoShowFee([1n]), 6n);
+  });
+
+  it("rejects changing an operator wallet through reactivation", async function () {
+    const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
+    await registry.write.removeOperator([1n]);
+
+    await viem.assertions.revertWith(
+      registry.write.registerOperator([1n, stranger.account.address, "Replacement Garage", [STANDARD]]),
+      "OperatorRegistry: operator wallet mismatch",
+    );
+  });
+
   it("lets the admin register and configure an operator in one transaction", async function () {
     const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
 
@@ -307,5 +353,51 @@ describe("OperatorRegistry", function () {
     assert.equal(await registry.read.supportsCategory([1n, WOMEN_SLOT]), true);
     assert.equal(await registry.read.getPricePerHour([1n, FAMILY_SLOT]), 12n);
     assert.equal(await registry.read.getPricePerHour([1n, WOMEN_SLOT]), 9n);
+  });
+
+  it("defaults valid slots to enabled and lets admin or operator toggle them", async function () {
+    const { registry, operator } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
+    await registry.write.setCategoryCapacity([1n, STANDARD, 2n], { account: operator.account });
+
+    assert.equal(await registry.read.isSlotEnabled([1n, STANDARD, 1n]), true);
+
+    await registry.write.setSlotAvailable([1n, STANDARD, 1n, false], { account: operator.account });
+    assert.equal(await registry.read.isSlotEnabled([1n, STANDARD, 1n]), false);
+
+    await registry.write.setSlotAvailable([1n, STANDARD, 1n, true]);
+    assert.equal(await registry.read.isSlotEnabled([1n, STANDARD, 1n]), true);
+  });
+
+  it("validates slot availability authorization, category, capacity, and whitelist", async function () {
+    const { registry, operator, stranger } = await networkHelpers.loadFixture(deployRegistryFixture);
+
+    await registry.write.registerOperator([1n, operator.account.address, "Central Garage", [STANDARD]]);
+    await registry.write.setCategoryCapacity([1n, STANDARD, 2n], { account: operator.account });
+
+    await viem.assertions.revertWith(
+      registry.write.setSlotAvailable([1n, STANDARD, 1n, false], { account: stranger.account }),
+      "OperatorRegistry: not owner or operator wallet",
+    );
+    await viem.assertions.revertWith(
+      registry.write.setSlotAvailable([1n, EV_CHARGING, 1n, false], { account: operator.account }),
+      "OperatorRegistry: unsupported category",
+    );
+    await viem.assertions.revertWith(
+      registry.write.setSlotAvailable([1n, STANDARD, 0n, false], { account: operator.account }),
+      "OperatorRegistry: slot out of range",
+    );
+    await viem.assertions.revertWith(
+      registry.write.setSlotAvailable([1n, STANDARD, 3n, false], { account: operator.account }),
+      "OperatorRegistry: slot out of range",
+    );
+
+    await registry.write.removeOperator([1n]);
+    await viem.assertions.revertWith(
+      registry.write.setSlotAvailable([1n, STANDARD, 1n, false]),
+      "OperatorRegistry: not whitelisted",
+    );
+    assert.equal(await registry.read.isSlotEnabled([1n, STANDARD, 1n]), false);
   });
 });

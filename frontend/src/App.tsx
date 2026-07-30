@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, CircleUser, CircleX, Coins, LoaderCircle, RefreshCw, Wallet, X } from "lucide-react";
 import { type Address, type Hex, keccak256, parseAbiItem, parseEther, toBytes, zeroAddress } from "viem";
-import { membershipManagerAbi, operatorRegistryAbi, parkCreditAbi, parkingLedgerAbi, parkChainRouterAbi } from "./abi/contracts";
+import {
+  membershipManagerAbi,
+  operatorRegistryAbi,
+  operatorTreasuryAbi,
+  parkCreditAbi,
+  parkingLedgerAbi,
+  parkChainRouterAbi,
+} from "./abi/contracts";
 import { StatusStrip } from "./components/shared-panels";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from "./components/ui";
 import {
@@ -394,6 +401,7 @@ export function App() {
 
   const [allocator, setAllocator] = useState("");
   const [creditRate, setCreditRate] = useState("1000000000000000");
+  const [treasuryFundingWei, setTreasuryFundingWei] = useState("10000000000000000");
   const [gracePeriodMinutes, setGracePeriodMinutes] = useState("15");
 
   const [reservationId, setReservationId] = useState("0");
@@ -417,7 +425,13 @@ export function App() {
     loading: false,
     error: "",
     slots: [] as bigint[],
+    disabledSlots: [] as bigint[],
     reservations: [] as ReturnType<typeof parseReservation>[],
+  });
+  const [treasurySummary, setTreasurySummary] = useState({
+    availableLiquidity: "-",
+    requiredLiquidity: "-",
+    shortfall: "-",
   });
   const [memberSummary, setMemberSummary] = useState({
     balance: "-",
@@ -780,7 +794,8 @@ export function App() {
     setSelectedReservation(reservation);
     setSelectedReservationRated(rated);
     setReservationId(reservation.id.toString());
-    return result;
+    setOperatorId(reservation.operatorID.toString());
+    return reservation;
   }
 
   async function refreshMemberReservations() {
@@ -802,7 +817,20 @@ export function App() {
       ),
     );
 
-    setMemberReservations(reservations.slice().reverse());
+    const newestFirst = reservations.slice().reverse();
+    setMemberReservations(newestFirst);
+
+    const activeReservations = newestFirst.filter(
+      (reservation) => reservation.status === 0 || reservation.status === 1,
+    );
+    const selectedActiveReservation = activeReservations.find(
+      (reservation) => reservation.id.toString() === reservationId,
+    );
+    const reservationToOpen = selectedActiveReservation ?? activeReservations[0];
+    if (reservationToOpen) {
+      await loadReservation(reservationToOpen.id);
+    }
+
     return reservations;
   }
 
@@ -937,6 +965,17 @@ export function App() {
         ),
       );
       const slots = Array.from({ length: Number(capacity) }, (_value, index) => BigInt(index + 1));
+      const enabledStates = await Promise.all(
+        slots.map((slotID) =>
+          readContract({
+            address: requireRegistry(),
+            abi: operatorRegistryAbi,
+            functionName: "isSlotEnabled",
+            args: [operator, category, slotID],
+          }) as Promise<boolean>,
+        ),
+      );
+      const disabledSlots = slots.filter((_slotID, index) => !enabledStates[index]);
       const reservationIdGroups = await Promise.all(
         slots.map((slotID) =>
           readContract({
@@ -979,10 +1018,11 @@ export function App() {
         loading: false,
         error: "",
         slots,
+        disabledSlots,
         reservations,
       });
 
-      return { capacity, slots, reservations };
+      return { capacity, slots, disabledSlots, reservations };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSlotCalendar({
@@ -992,10 +1032,85 @@ export function App() {
         loading: false,
         error: message,
         slots: [],
+        disabledSlots: [],
         reservations: [],
       });
       throw error;
     }
+  }
+
+  async function refreshManagedSlotAvailability(selectedOperatorId = operatorId) {
+    const available = Boolean(
+      await readContract({
+        address: requireRegistry(),
+        abi: operatorRegistryAbi,
+        functionName: "isSlotEnabled",
+        args: [
+          toUint(selectedOperatorId, "Operator ID"),
+          categoryHash,
+          toUint(managedSlotId, "Slot number"),
+        ],
+      }),
+    );
+    setManagedSlotAvailable(available);
+    return available;
+  }
+
+  async function refreshTreasurySummary() {
+    const [availableLiquidity, requiredLiquidity, shortfall] = await Promise.all([
+      readContract({
+        address: requireTreasury(),
+        abi: operatorTreasuryAbi,
+        functionName: "getAvailableLiquidity",
+      }),
+      readContract({
+        address: requireTreasury(),
+        abi: operatorTreasuryAbi,
+        functionName: "getRequiredLiquidity",
+      }),
+      readContract({
+        address: requireTreasury(),
+        abi: operatorTreasuryAbi,
+        functionName: "getLiquidityShortfall",
+      }),
+    ]);
+    const summary = {
+      availableLiquidity: String(availableLiquidity),
+      requiredLiquidity: String(requiredLiquidity),
+      shortfall: String(shortfall),
+    };
+    setTreasurySummary(summary);
+    return summary;
+  }
+
+  async function refreshReservationCostPreview() {
+    const operator = toUint(operatorId, "Operator ID");
+    const duration = toUint(reservationDuration, "Duration hours");
+    const [price, noShow] = await Promise.all([
+      readContract({
+        address: requireRegistry(),
+        abi: operatorRegistryAbi,
+        functionName: "getPricePerHour",
+        args: [operator, categoryHash],
+      }),
+      readContract({
+        address: requireRegistry(),
+        abi: operatorRegistryAbi,
+        functionName: "getNoShowFee",
+        args: [operator],
+      }),
+    ]);
+    const reservedCredits = BigInt(String(price)) * duration;
+    const noShowCredits = BigInt(String(noShow));
+    const requiredCredits = reservedCredits > noShowCredits ? reservedCredits : noShowCredits;
+    const availableCredits = /^\d+$/.test(memberSummary.balance) ? BigInt(memberSummary.balance) : 0n;
+
+    return {
+      availableCredits,
+      reservedCredits,
+      requiredCredits,
+      insufficient: availableCredits < requiredCredits,
+    };
   }
 
   async function refreshAvailableSlotPreview() {
@@ -1158,8 +1273,11 @@ export function App() {
     refreshMemberAccount,
     refreshMemberReservations,
     refreshMembershipTiers,
+    refreshManagedSlotAvailability,
+    refreshReservationCostPreview,
     refreshSelectedReservation,
     refreshSlotCalendar,
+    refreshTreasurySummary,
     reservationDuration,
     reservationId,
     reservationStatusLabel: hasSelectedReservation
@@ -1209,6 +1327,7 @@ export function App() {
     setTierId,
     setTierName,
     setTierPriceWei,
+    setTreasuryFundingWei,
     tierActive,
     tierCredits,
     tierHourCap,
@@ -1216,6 +1335,8 @@ export function App() {
     tierName,
     tierPriceWei,
     treasuryAddress,
+    treasuryFundingWei,
+    treasurySummary,
     txBase,
     formatBerlinTime,
     halfHourSeconds: HALF_HOUR_SECONDS,
@@ -1373,7 +1494,7 @@ export function App() {
                   }}
                   aria-haspopup="dialog"
                 >
-                  Upgrade
+                  Membership
                 </Button>
                 <Button className="hero-account-signout" onClick={logout}>
                   Sign Out

@@ -19,9 +19,9 @@ type GasRow = {
 async function deployGasFixture() {
   const [deployer, operator, member] = await viem.getWalletClients();
   const credit = await viem.deployContract("ParkCredit");
-  const membership = await viem.deployContract("MembershipManager", [credit.address]);
   const registry = await viem.deployContract("OperatorRegistry");
   const treasury = await viem.deployContract("OperatorTreasury", [registry.address, parseEther("0.001")]);
+  const membership = await viem.deployContract("MembershipManager", [credit.address, treasury.address]);
   const ledger = await viem.deployContract("ParkingLedger", [
     membership.address,
     registry.address,

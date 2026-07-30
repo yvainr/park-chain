@@ -23,6 +23,7 @@ contract MembershipManager {
 
     address public owner;
     IMembershipParkCredit public immutable parkCredit;
+    address payable public immutable operatorTreasury;
 
     mapping(uint256 => Tier) public tiers;
     mapping(address => Membership) public memberships;
@@ -40,17 +41,20 @@ contract MembershipManager {
     );
     event MembershipPurchased(address indexed member, uint256 indexed tierId, uint256 expiresAt);
     event MembershipRenewed(address indexed member, uint256 indexed tierId, uint256 expiresAt);
+    event MembershipPaymentForwarded(address indexed member, uint256 indexed tierId, uint256 amountWei);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "MembershipManager: not owner");
         _;
     }
 
-    constructor(IMembershipParkCredit credit) {
+    constructor(IMembershipParkCredit credit, address payable treasury) {
         require(address(credit) != address(0), "MembershipManager: zero credit");
+        require(treasury != address(0), "MembershipManager: zero treasury");
 
         owner = msg.sender;
         parkCredit = credit;
+        operatorTreasury = treasury;
     }
 
     function setTier(
@@ -86,6 +90,7 @@ contract MembershipManager {
         uint256 expiresAt = block.timestamp + MEMBERSHIP_PERIOD;
         memberships[msg.sender] = Membership({tierId: tierId, expiresAt: expiresAt});
         parkCredit.mint(msg.sender, tier.monthlyCredits);
+        _forwardPayment(msg.sender, tierId, msg.value);
 
         emit MembershipPurchased(msg.sender, tierId, expiresAt);
     }
@@ -101,6 +106,7 @@ contract MembershipManager {
 
         memberships[msg.sender] = Membership({tierId: tierId, expiresAt: expiresAt});
         parkCredit.mint(msg.sender, tier.monthlyCredits);
+        _forwardPayment(msg.sender, tierId, msg.value);
 
         emit MembershipRenewed(msg.sender, tierId, expiresAt);
     }
@@ -131,6 +137,12 @@ contract MembershipManager {
     function _validatedTier(uint256 tierId) private view returns (Tier memory tier) {
         tier = tiers[tierId];
         require(tier.active, "MembershipManager: inactive tier");
+    }
+
+    function _forwardPayment(address member, uint256 tierId, uint256 amountWei) private {
+        (bool sent, ) = operatorTreasury.call{value: amountWei}("");
+        require(sent, "MembershipManager: treasury funding failed");
+        emit MembershipPaymentForwarded(member, tierId, amountWei);
     }
 
     function getTierIds() external view returns (uint256[] memory){

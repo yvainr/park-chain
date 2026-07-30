@@ -408,6 +408,13 @@ export const parkingLedgerAbi = [
   },
   {
     type: "function",
+    name: "gracePeriodMinutes",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "setGracePeriod",
     stateMutability: "nonpayable",
     inputs: [{ name: "minutes_", type: "uint256" }],
@@ -511,36 +518,6 @@ export const parkingLedgerAbi = [
       { name: "duration", type: "uint256" },
     ],
     outputs: [{ name: "slotID", type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "getCategorySchedule",
-    stateMutability: "view",
-    inputs: [
-      { name: "operatorID", type: "uint256" },
-      { name: "category", type: "bytes32" },
-      { name: "fromTime", type: "uint256" },
-      { name: "toTime", type: "uint256" },
-    ],
-    outputs: [
-      { name: "capacity", type: "uint256" },
-      { name: "enabledSlotIDs", type: "uint256[]" },
-      {
-        name: "scheduledReservations",
-        type: "tuple[]",
-        components: [
-          { name: "reservationID", type: "uint256" },
-          { name: "member", type: "address" },
-          { name: "operatorID", type: "uint256" },
-          { name: "category", type: "bytes32" },
-          { name: "startTime", type: "uint256" },
-          { name: "duration", type: "uint256" },
-          { name: "checkInTime", type: "uint256" },
-          { name: "status", type: "uint8" },
-          { name: "slotID", type: "uint256" },
-        ],
-      },
-    ],
   },
   {
     type: "function",
@@ -713,6 +690,20 @@ export const parkingLedgerAbi = [
 export const operatorTreasuryAbi = [
   {
     type: "function",
+    name: "allocator",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "fundTreasury",
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "setAllocator",
     stateMutability: "nonpayable",
     inputs: [{ name: "newAllocator", type: "address" }],
@@ -737,6 +728,34 @@ export const operatorTreasuryAbi = [
     name: "getAccumulatedEarnings",
     stateMutability: "view",
     inputs: [{ name: "operatorId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getWithdrawableEarnings",
+    stateMutability: "view",
+    inputs: [{ name: "operatorId", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getAvailableLiquidity",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getRequiredLiquidity",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "getLiquidityShortfall",
+    stateMutability: "view",
+    inputs: [],
     outputs: [{ name: "", type: "uint256" }],
   },
   {

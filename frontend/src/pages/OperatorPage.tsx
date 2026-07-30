@@ -36,6 +36,8 @@ export function OperatorPage({ app }: any) {
   const [categorySettings, setCategorySettings] = useState<Record<string, OperatorCategorySetting>>({});
   const [averageRating, setAverageRating] = useState("-");
   const [ratingCount, setRatingCount] = useState("0");
+  const [accumulatedEarnings, setAccumulatedEarnings] = useState("0");
+  const [withdrawableEarnings, setWithdrawableEarnings] = useState("0");
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState("");
 
@@ -51,7 +53,7 @@ export function OperatorPage({ app }: any) {
         functionName: "getNoShowFee",
         args: [operatorId],
       });
-      const [averageRatingRaw, ratingRaw] = await Promise.all([
+      const [averageRatingRaw, ratingRaw, earningsRaw, withdrawableRaw] = await Promise.all([
         readContract({
           address: app.requireLedger(),
           abi: parkingLedgerAbi,
@@ -62,6 +64,18 @@ export function OperatorPage({ app }: any) {
           address: app.requireLedger(),
           abi: parkingLedgerAbi,
           functionName: "operatorRatings",
+          args: [operatorId],
+        }),
+        readContract({
+          address: app.requireTreasury(),
+          abi: operatorTreasuryAbi,
+          functionName: "getAccumulatedEarnings",
+          args: [operatorId],
+        }),
+        readContract({
+          address: app.requireTreasury(),
+          abi: operatorTreasuryAbi,
+          functionName: "getWithdrawableEarnings",
           args: [operatorId],
         }),
       ]);
@@ -102,8 +116,17 @@ export function OperatorPage({ app }: any) {
       app.setNoShowFee(String(noShowFee));
       setAverageRating(`${(Number(averageRatingRaw) / 100).toFixed(2)} / 5`);
       setRatingCount(String((ratingRaw as any).ratingCount ?? (ratingRaw as any)[1] ?? 0));
+      setAccumulatedEarnings(String(earningsRaw));
+      setWithdrawableEarnings(String(withdrawableRaw));
       setCategorySettings(Object.fromEntries(entries));
-      return { noShowFee, averageRating: averageRatingRaw, rating: ratingRaw, categories: Object.fromEntries(entries) };
+      return {
+        noShowFee,
+        averageRating: averageRatingRaw,
+        rating: ratingRaw,
+        earnings: earningsRaw,
+        withdrawable: withdrawableRaw,
+        categories: Object.fromEntries(entries),
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsError(message);
@@ -117,6 +140,11 @@ export function OperatorPage({ app }: any) {
     if (!app.registryAddress || !app.operatorId) return;
     void loadOperatorSettings().catch(() => undefined);
   }, [app.registryAddress, app.operatorId]);
+
+  useEffect(() => {
+    if (!app.operatorId || !app.registryAddress || !app.managedSlotId) return;
+    void app.refreshManagedSlotAvailability(app.operatorId).catch(() => undefined);
+  }, [app.operatorId, app.registryAddress, app.categoryHash, app.managedSlotId]);
 
   function updateCategorySetting(name: string, patch: Partial<OperatorCategorySetting>) {
     setCategorySettings({
@@ -291,14 +319,16 @@ export function OperatorPage({ app }: any) {
                 </Select>
               </Label>
             </div>
-            <Button onClick={() => app.run("Set parking place availability", () =>
-              app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
+            <Button onClick={() => app.run("Set parking place availability", async () => {
+              const result = await app.txBase(app.requireRegistry(), operatorRegistryAbi, "setSlotAvailable", [
                 toUint(app.operatorId, "Operator ID"),
                 app.categoryHash,
                 toUint(app.managedSlotId, "Slot number"),
                 app.managedSlotAvailable,
-              ])
-            )}>
+              ]);
+              await app.refreshManagedSlotAvailability(app.operatorId);
+              return result;
+            })}>
               Save Place Availability
             </Button>
           </CardContent>
@@ -314,6 +344,16 @@ export function OperatorPage({ app }: any) {
               <span>Average rating</span>
               <strong>{averageRating}</strong>
               <small>{ratingCount} ratings</small>
+            </div>
+            <div className="operator-rating-summary">
+              <span>Total earnings</span>
+              <strong>{accumulatedEarnings} credits</strong>
+              <small>Recorded operator earnings</small>
+            </div>
+            <div className="operator-rating-summary">
+              <span>Withdrawable now</span>
+              <strong>{withdrawableEarnings} credits</strong>
+              <small>Limited by current treasury liquidity</small>
             </div>
             <Button
               variant="secondary"
@@ -348,14 +388,7 @@ export function OperatorPage({ app }: any) {
             <Button
               variant="secondary"
               onClick={() =>
-                app.run("Accumulated earnings", () =>
-                  readContract({
-                    address: app.requireTreasury(),
-                    abi: operatorTreasuryAbi,
-                    functionName: "getAccumulatedEarnings",
-                    args: [toUint(app.operatorId, "Operator ID")],
-                  }),
-                )
+                app.run("Operator earnings", loadOperatorSettings)
               }
             >
               Get Earnings
@@ -403,9 +436,16 @@ export function OperatorPage({ app }: any) {
             </Button>
             <Button
               onClick={() =>
-                app.run("Withdraw earnings", () =>
-                  app.txBase(app.requireTreasury(), operatorTreasuryAbi, "withdraw", [toUint(app.operatorId, "Operator ID")]),
-                )
+                app.run("Withdraw earnings", async () => {
+                  const result = await app.txBase(
+                    app.requireTreasury(),
+                    operatorTreasuryAbi,
+                    "withdraw",
+                    [toUint(app.operatorId, "Operator ID")],
+                  );
+                  await loadOperatorSettings();
+                  return result;
+                })
               }
             >
               Withdraw

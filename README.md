@@ -1,151 +1,57 @@
-# ParkChain
+# What are you most proud of in your project?
+The reservation logic is the core of ParkChain and the part we are most proud of. We implemented the complete reservation lifecycle, including reservation creation, check-in, check-out, cancellation, overstay and no-show handling. Integrating these processes with memberships, operators, and ParkCredits token required careful coordination between several smart contracts.
 
-ParkChain is a mono-repository for the Urban Parking and EV Charging Network assignment. It contains Solidity contracts, Hardhat tests, frontend code, and project documentation.
+We are also proud of the usability of our user interface. Since blockchain applications can easily become difficult to use, we focused on creating an intuitive frontend that hides as much blockchain complexity as possible from the users. The dashboard and role-specific interfaces make interacting with the platform straightforward for members, operators and administrators.
 
-## Install Dependencies
+# Work Distribution
+We worked closely together and held weekly meetings to discuss ParkChain, divide tasks, review each other's work and coordinate the next development steps. Additionally, tasks where tracked using Linear where we could monitor others progress and coordinate development. 
 
-`ParkCredit` imports OpenZeppelin contracts, so install the Node dependencies before compiling or testing:
+| team member | work | cherry on top |
+| :--- | :--- | :--- |
+| **Gina** | smart contracts, graphics, frontend refinement, report | rating |
+| **Yan** | smart contracts, frontend UI, infrastructure, git integration, hardhat-tests, code-reviews | free slots display, QR-code |
+| **Vlad** | smart contracts, structure, git integration, hardhat-tests, frontend refinement | gas estimation |
+| **Emily** | smart contracts, posters, graphics, report | statistics |
+
+# Statement on the use of AI
+AI tools were used throughout the development process to support productivity, but all architectural decisions, implementations, testing and integration were carried out by the team.
+The following tools were used:
+- ⁠Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for part of the development in form of explanations, code suggestions and debugging
+- Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used to assist with frontend development, particularly for UI components and styling
+- Codex, ⁠Copilot (GPT-5.4/5.5), ⁠Claude and ⁠ChatGPT were used for ⁠pull request reviews
+- Codex, Copilot (GPT-5.6 Sol), Codex was used to structure the detailed technical project documentation
+- ⁠ChatGPT was used for small LaTeX formatting tasks, such as creating tables and adjusting layouts
+
+# How to run ParkChain 
+Install the contract and frontend dependencies from the project root:
 
 ```bash
 npm install
 npm install --prefix frontend
 ```
 
-## Start Locally
-
-Start the complete local ParkChain stack from the repository root:
+Then start the complete local ParkChain stack with one command:
 
 ```bash
 npm start
 ```
 
-This one command starts a local Hardhat node, waits for it to become ready, deploys and configures the contracts, and starts the frontend with the generated router address. Press `Ctrl+C` to stop the frontend and local node.
+This starts a local Hardhat node, waits until it is ready, deploys and configures the smart contracts, and launches the frontend with the generated `ParkChainRouter` address. Open [http://localhost:5173](http://localhost:5173) in a browser.
 
-## Run Contract Tests
+Detailed technical documentation and build, run, deployment, and test instructions are available in:
 
-The Hardhat tests live in `contracts/hardhat-test` and cover:
+- [TECH_README.md](TECH_README.md)
 
-- `ParkCredit`: ownership, minter/burner role management, role guards, and inherited ERC-1155 behavior.
-- `MembershipManager`: tier administration, membership purchase and renewal, expiry behavior, ParkCredit mint integration, and future ParkingLedger read integration.
-- `OperatorRegistry`: admin registration/removal, category support, operator-only price and capacity updates, no-show fees, and revert cases.
-- `ParkingLedger`: integrated reservation validation, overlap prevention, monthly caps, check-in charging, overstay settlement, no-show settlement, reservation ratings, and treasury allocation.
-- `OperatorTreasury`: allocator-only earnings, operator withdrawals, exchange-rate application, liquidity checks, and revert cases.
+# Reflection
+ParkChain consists of six smart contrcats with clearly seperated responsibilities. Instead of implementing all functionality in a single contract, we devided the system into independent modules responsible for memberships, parking operators, reservations, ParkCredits, administration and ledger functionality. This modular architecture improves mantainability, scaling and extensibility while keeping the individual contracts easier to understand and test.
 
-Run the full smart contract suite from the repository root:
+At the same time, developing a modular system taught us that these advantages come with additional complexity. Splitting the functionality across multiple smart contracts introduced integration challenges, since changes in one contract often affected interactions with several others. As a result, designing clear interfaces, keeping responsibilities well separated, and testing contract interactions became essential parts of the development process.
 
-```bash
-npm run test:contracts
-```
+Another important architectural decision was to use a credit-based membership model instead of an hour-based one. Credits provide greater flexibility and allow different parking categories and future pricing models without fundamentally changing the membership structure. This approach makes the platform easier to extend while keeping the smart contracts relatively stable.
 
-Generate the gas usage table with:
+### Feedback from the Poster Session
+The feedback we received during the poster session was generally positive. Visitors particularly appreciated the modular smart contract architecture, the Router contract as a single entry point, and the user-friendly frontend. Several discussions focused on overstay handling, reservation constraints, and the integration of ParkChain with real-world parking infrastructure. For example, visitors asked about edge cases, such as how the platform should handle situations where a user overstays their reservation and the same parking spot has already been booked by the next customer. Although ParkChain already discourages this behavior through configurable overstay fees, the discussion highlighted an important limitation of blockchain-based systems: smart contracts can only enforce digital rules and cannot directly influence events in the physical world. A real-world deployment would therefore require additional infrastructure.
 
-```bash
-npm run gas:contracts
-```
-
-## Local Deployment
-
-The Hardhat deployment script deploys:
-
-- `ParkCredit`
-- `MembershipManager`
-- `OperatorRegistry`
-- `OperatorTreasury`
-- `ParkingLedger`
-- `ParkChainRouter`
-
-It also grants `MembershipManager` the ParkCredit minter role and configures the default tiers:
-
-- Urban: 80 credits, 0.01 ETH, 20 hours/month
-- Commuter: 200 credits, 0.02 ETH, 60 hours/month
-- Unlimited: 400 credits, 0.03 ETH, 120 hours/month
-
-The script grants `ParkingLedger` the ParkCredit burner role, sets it as the treasury allocator, and configures a default 15-minute grace period.
-It also deploys or reuses `ParkChainRouter` and writes the latest five contract addresses into the router.
-
-To run the local chain and deployment separately for contract development, run these commands in separate terminals:
-
-```bash
-npm run node:contracts
-npm run deploy:contracts:local
-```
-
-Copy the printed router address into `frontend/.env`:
-
-```bash
-VITE_PARKCHAIN_CHAIN_ID=31337
-VITE_PARKCHAIN_RPC_URL=http://127.0.0.1:8545
-VITE_PARKCHAIN_ROUTER_ADDRESS=0x...
-```
-
-On future redeploys, keep the same router address and update the stored contract addresses:
-
-```bash
-ROUTER_ADDRESS=0x... npm run deploy:contracts:local
-```
-
-Restart or refresh the frontend after redeploying so it resolves the latest addresses from the router.
-
-## Sepolia Deployment
-
-Create a deployer wallet, fund it with Sepolia ETH, and keep its private key out of Git and Vercel. The deployer wallet becomes the contract owner/admin.
-
-Required local deployment variables:
-
-```bash
-SEPOLIA_RPC_URL=https://your-sepolia-rpc-url
-SEPOLIA_PRIVATE_KEY=0xyour_deployer_private_key
-```
-
-Deploy to Sepolia:
-
-```bash
-SEPOLIA_RPC_URL=https://your-sepolia-rpc-url \
-SEPOLIA_PRIVATE_KEY=0xyour_deployer_private_key \
-npm run deploy:contracts:sepolia
-```
-
-Copy the printed `ParkChainRouter` address. For future Sepolia redeploys, keep the same router and update the stored implementation addresses:
-
-```bash
-SEPOLIA_RPC_URL=https://your-sepolia-rpc-url \
-SEPOLIA_PRIVATE_KEY=0xyour_deployer_private_key \
-ROUTER_ADDRESS=0xYourExistingSepoliaRouter \
-npm run deploy:contracts:sepolia
-```
-
-Configure the Vercel frontend with public environment variables:
-
-```bash
-VITE_PARKCHAIN_CHAIN_ID=11155111
-VITE_PARKCHAIN_RPC_URL=https://your-sepolia-rpc-url
-VITE_PARKCHAIN_ROUTER_ADDRESS=0xYourSepoliaRouter
-```
-
-Do not add `SEPOLIA_PRIVATE_KEY` to Vercel. The frontend only needs the public RPC URL and router address.
-
-Supported slot category keys are hashed as `bytes32`: `standard`, `disabled`, `ev-charging`, `motorbike`, `family`, and `women`.
-
-Before accepting reservations for a newly registered operator, connect the registered operator wallet in the Operator workspace. Select the operator ID and category, then configure both the price per hour and a category capacity greater than zero. Use **Get Capacity** to verify the stored value. Reservations for a category with zero capacity, or whose overlapping reservations have reached capacity, will revert.
-
-## Frontend
-
-The Vite frontend supports the current MVP contract surfaces:
-
-- Admin: set membership tiers, register/remove operators, configure categories, allocator, and exchange rate.
-- Admin: set the booking grace period.
-- Member: purchase/renew membership, reserve slots, cancel, check in, check out with a 1-5 parking-experience rating, mark no-shows, rate already checked-out reservations, and read ParkCredit balance, membership status, tier, cap, expiry, reservations, and monthly usage.
-- Operator: automatically resolve the operator ID from the connected wallet, set prices, category capacities, and no-show fees; verify configuration; view average member rating; and withdraw earnings.
-- Reads: operator, treasury, ledger month key, and monthly usage checks.
-
-To start only the frontend against the values configured in `frontend/.env`:
-
-```bash
-npm run frontend:dev
-```
-
-The frontend reads `VITE_PARKCHAIN_CHAIN_ID`, `VITE_PARKCHAIN_RPC_URL`, and `VITE_PARKCHAIN_ROUTER_ADDRESS`. It resolves `ParkCredit`, `MembershipManager`, `OperatorRegistry`, `OperatorTreasury`, and `ParkingLedger` from-chain on startup.
-
-## CI
-
-GitHub Actions installs Node dependencies, builds contracts, runs the Hardhat contract tests, generates the gas usage table, and builds the frontend on every push and pull request.
+The discussions also inspired several ideas for future extensions. For example, ParkChain could automatically reassign affected reservations to alternative available parking spaces, compensate users with ParkCredits if no replacement is available, or notify parking operators so they can manually resolve conflicts. These additions would complement the existing smart contract logic and further improve the user experience in real-world scenarios.
+ 
+The poster session also provided valuable feedback on the usability of the application. Based on the suggestions we received, we further refined the frontend usability and implemented the statistics dashboard for operators. While these improvements do not directly address the physical challenges discussed above, they strengthen the practical usability of ParkChain and provide a solid foundation for future extensions.

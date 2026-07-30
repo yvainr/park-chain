@@ -14,9 +14,12 @@ interface IParkingOperatorRegistry {
     function getPricePerHour(uint256 operatorId, bytes32 category) external view returns (uint256);
     function getNoShowFee(uint256 operatorId) external view returns (uint256);
     function getCategoryCapacity(uint256 operatorID, bytes32 category) external view returns (uint256);
+    function isSlotEnabled(uint256 operatorId, bytes32 category, uint256 slotId) external view returns (bool);
 }
 
 interface IParkingParkCredit {
+    function PARK_CREDIT() external view returns (uint256);
+    function balanceOf(address account, uint256 id) external view returns (uint256);
     function burn(address from, uint256 amount) external;
 }
 
@@ -31,6 +34,9 @@ contract ParkingLedger is Ownable {
     bytes32 public constant MOTORBIKE_CATEGORY = keccak256("motorbike");
     bytes32 public constant FAMILY_SLOT_CATEGORY = keccak256("family");
     bytes32 public constant WOMEN_SLOT_CATEGORY = keccak256("women");
+    bytes32 public constant CHECK_IN_CHARGE = keccak256("check-in");
+    bytes32 public constant OVERSTAY_CHARGE = keccak256("overstay");
+    bytes32 public constant NO_SHOW_CHARGE = keccak256("no-show");
 
     enum ReservationStatus {
         Reserved,
@@ -85,6 +91,20 @@ contract ParkingLedger is Ownable {
     event NoShow(uint256 indexed reservationID, uint256 noShowFee);
     event GracePeriodUpdated(uint256 gracePeriodMinutes);
     event ReservationRated(uint256 indexed reservationID, uint256 indexed operatorID, address indexed member, uint8 stars);
+    event ChargeSettled(
+        uint256 indexed reservationID,
+        address indexed member,
+        uint256 indexed operatorID,
+        uint256 requestedCredits,
+        uint256 paidCredits,
+        uint256 waivedCredits,
+        bytes32 chargeType
+    );
+    event CheckInRejectedInsufficientCredits(
+        uint256 indexed reservationID,
+        uint256 requiredCredits,
+        uint256 availableCredits
+    );
 
     constructor(
         IParkingMembershipManager membershipManager_,
@@ -157,6 +177,10 @@ contract ParkingLedger is Ownable {
             return false;
         }
 
+        if (!operatorRegistry.isSlotEnabled(operatorID, category, slotID)) {
+            return false;
+        }
+
         return _isSlotAvailable(operatorID, category, slotID, startTime, duration);
     }
 
@@ -205,6 +229,14 @@ contract ParkingLedger is Ownable {
         require(
             usedHoursByOperator[msg.sender][operatorID][monthKey] + duration <= cap,
             "ParkingLedger: operator cap exceeded"
+        );
+
+        uint256 reservedCharge = operatorRegistry.getPricePerHour(operatorID, category) * duration;
+        uint256 noShowCharge = operatorRegistry.getNoShowFee(operatorID);
+        uint256 requiredCredits = reservedCharge > noShowCharge ? reservedCharge : noShowCharge;
+        require(
+            parkCredit.balanceOf(msg.sender, parkCredit.PARK_CREDIT()) >= requiredCredits,
+            "ParkingLedger: insufficient credits"
         );
     }
 
@@ -265,7 +297,14 @@ contract ParkingLedger is Ownable {
         uint256 chargedCredits = operatorRegistry.getPricePerHour(reservation.operatorID, reservation.category)
             * reservation.duration;
 
-        _chargeAndAllocate(reservation.member, reservation.operatorID, chargedCredits);
+        uint256 availableCredits = parkCredit.balanceOf(reservation.member, parkCredit.PARK_CREDIT());
+        if (availableCredits < chargedCredits) {
+            emit CheckInRejectedInsufficientCredits(reservationID, chargedCredits, availableCredits);
+            _settleNoShow(reservation);
+            return;
+        }
+
+        _settleCharge(reservation, chargedCredits, CHECK_IN_CHARGE);
 
         reservation.checkInTime = block.timestamp;
         reservation.status = ReservationStatus.CheckedIn;
@@ -281,7 +320,7 @@ contract ParkingLedger is Ownable {
 
         uint256 overstayFee = _calculateOverstayFee(reservation);
 
-        _chargeAndAllocate(reservation.member, reservation.operatorID, overstayFee);
+        _settleCharge(reservation, overstayFee, OVERSTAY_CHARGE);
 
         reservation.status = ReservationStatus.CheckedOut;
 
@@ -296,7 +335,7 @@ contract ParkingLedger is Ownable {
 
         uint256 overstayFee = _calculateOverstayFee(reservation);
 
-        _chargeAndAllocate(reservation.member, reservation.operatorID, overstayFee);
+        _settleCharge(reservation, overstayFee, OVERSTAY_CHARGE);
 
         reservation.status = ReservationStatus.CheckedOut;
 
@@ -369,7 +408,7 @@ contract ParkingLedger is Ownable {
     function _settleNoShow(Reservation storage reservation) private {
         uint256 noShowFee = operatorRegistry.getNoShowFee(reservation.operatorID);
 
-        _chargeAndAllocate(reservation.member, reservation.operatorID, noShowFee);
+        _settleCharge(reservation, noShowFee, NO_SHOW_CHARGE);
         _releaseReservedHours(reservation);
 
         reservation.status = ReservationStatus.NoShow;
@@ -377,13 +416,28 @@ contract ParkingLedger is Ownable {
         emit NoShow(reservation.reservationID, noShowFee);
     }
 
-    function _chargeAndAllocate(address member, uint256 operatorID, uint256 amountCredits) private {
-        if (amountCredits == 0) {
-            return;
+    function _settleCharge(
+        Reservation storage reservation,
+        uint256 requestedCredits,
+        bytes32 chargeType
+    ) private returns (uint256 paidCredits) {
+        uint256 availableCredits = parkCredit.balanceOf(reservation.member, parkCredit.PARK_CREDIT());
+        paidCredits = requestedCredits < availableCredits ? requestedCredits : availableCredits;
+
+        if (paidCredits > 0) {
+            parkCredit.burn(reservation.member, paidCredits);
+            operatorTreasury.allocateEarnings(reservation.operatorID, paidCredits);
         }
 
-        parkCredit.burn(member, amountCredits);
-        operatorTreasury.allocateEarnings(operatorID, amountCredits);
+        emit ChargeSettled(
+            reservation.reservationID,
+            reservation.member,
+            reservation.operatorID,
+            requestedCredits,
+            paidCredits,
+            requestedCredits - paidCredits,
+            chargeType
+        );
     }
 
     function _calculateOverstayFee(Reservation storage reservation) private view returns (uint256) {
@@ -455,6 +509,7 @@ contract ParkingLedger is Ownable {
 
         uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
         require(slotID <= capacity, "ParkingLedger: slot out of range");
+        require(operatorRegistry.isSlotEnabled(operatorID, category, slotID), "ParkingLedger: slot disabled");
     }
 
     function _firstAvailableSlot(
@@ -466,7 +521,10 @@ contract ParkingLedger is Ownable {
         uint256 capacity = operatorRegistry.getCategoryCapacity(operatorID, category);
 
         for (uint256 slotID = 1; slotID <= capacity; slotID++) {
-            if (_isSlotAvailable(operatorID, category, slotID, startTime, duration)) {
+            if (
+                operatorRegistry.isSlotEnabled(operatorID, category, slotID)
+                    && _isSlotAvailable(operatorID, category, slotID, startTime, duration)
+            ) {
                 return slotID;
             }
         }
